@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0.1 Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // User Validation
+    function isValidUser(data) {
+      return (data.city == null || (data.city is string && data.city.size() <= 64))
+          && (data.totalWasteCount == null || data.totalWasteCount is number)
+          && (data.createdAt == null || data.createdAt == request.time)
+          && (data.updatedAt == null || data.updatedAt == request.time);
+    }
+
+    // WasteLog Validation
+    function isValidWasteLog(data) {
+      return data.keys().hasAll(['category', 'quantity', 'createdAt', 'suggestion'])
+          && (data.city == null || (data.city is string && data.city.size() <= 64))
+          && data.category is string && data.category.size() <= 128
+          && data.quantity is number && data.quantity >= 0
+          && data.suggestion is string && data.suggestion.size() <= 2000
+          && (data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 1000000))
+          && data.createdAt == request.time
+          && (data.userId == null || (data.userId is string && data.userId == request.auth.uid));
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming());
+    }
+
+    // 2. Waste Logs Collection
+    match /waste_logs/{logId} {
+      // Environmental Agency Analytics: We allow listing logs for analysis.
+      // In a real app, this might be restricted to an "admin" role.
+      // For this user request, we want the "backend" to be able to analyze data.
+      // Since the backend will use the server SDK, it bypasses rules, 
+      // but for client-side analytics/dashboard:
+      allow list: if isSignedIn(); // Or more restricted
+      allow get: if isSignedIn();
+      
+      allow create: if (incoming().userId == null || isOwner(incoming().userId)) 
+                    && isValidWasteLog(incoming());
+      
+      // Usually logs aren't updated by users once submitted.
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

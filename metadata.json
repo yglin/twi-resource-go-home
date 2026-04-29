@@ -1,0 +1,8 @@
+{
+  "name": "Waste...ResourceGoHome - 幫 垃圾X 資源O 回家",
+  "description": "拍照辨識垃圾種類，取得在地回收建議。",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}

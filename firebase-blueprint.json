@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Registered user information",
+      "type": "object",
+      "properties": {
+        "city": { "type": "string", "description": "The county/city where the user resides" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Registration time" },
+        "totalWasteCount": { "type": "number", "description": "Total items logged by the user" }
+      },
+      "required": ["city", "createdAt"]
+    },
+    "WasteLog": {
+      "title": "Waste Log Entry",
+      "description": "A single record of trash identified by the user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The ID of the user who logged this (can be null for anonymous)" },
+        "city": { "type": "string", "description": "The city where the log was recorded" },
+        "category": { "type": "string", "description": "The type of trash identified" },
+        "quantity": { "type": "number", "description": "The quantity of trash" },
+        "suggestion": { "type": "string", "description": "Recycling suggestion provided by AI" },
+        "imageUrl": { "type": "string", "description": "Optional URL to the image" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When this log was created" }
+      },
+      "required": ["city", "category", "quantity", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "waste_logs/{logId}": {
+      "schema": "WasteLog",
+      "description": "All waste collection data"
+    }
+  }
+}
