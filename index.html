@@ -3,7 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <title>資源勾引魟 - Resources Going Home</title>
+    <meta name="theme-color" content="#020617" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      const isDev = window.location.hostname.includes('localhost') || 
+                    window.location.hostname.includes('127.0.0.1') || 
+                    window.location.hostname.includes('-dev-') ||
+                    window.location.href.includes('disable-sw=true');
+
+      if (isDev) {
+        console.log('[Dev Mode] Self-healing active: clearing service worker registrations and caches to prevent ESM module corruption.');
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            for (let registration of registrations) {
+              registration.unregister().then((success) => {
+                if (success) console.log('[Dev Mode] Unregistered Service Worker:', registration.scope);
+              });
+            }
+          });
+        }
+        if ('caches' in window) {
+          caches.keys().then((names) => {
+            for (let name of names) {
+              caches.delete(name).then(() => {
+                console.log('[Dev Mode] Cleared Cache:', name);
+              });
+            }
+          });
+        }
+      } else {
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+              .then((reg) => {
+                console.log('[PWA] ServiceWorker registered with scope:', reg.scope);
+              })
+              .catch((err) => {
+                console.error('[PWA] ServiceWorker registration failed:', err);
+              });
+          });
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

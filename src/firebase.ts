@@ -1,19 +1,40 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth();
+// Initialize Firebase App safely
+let app: any;
+try {
+  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+} catch (error) {
+  console.error("Firebase App initialization failed:", error);
+}
 
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+// Initialize Firestore safely with named database support
+let db: any;
+try {
+  if (app) {
+    const dbId = firebaseConfig.firestoreDatabaseId;
+    if (dbId) {
+      db = getFirestore(app, dbId);
+    } else {
+      db = getFirestore(app);
     }
   }
+} catch (error) {
+  console.error("Firestore initialization failed:", error);
 }
-testConnection();
+
+// Initialize Auth safely
+let auth: any;
+try {
+  if (app) {
+    auth = getAuth(app);
+  }
+} catch (error) {
+  console.error("Firebase Auth initialization failed:", error);
+}
+
+export { app, db, auth };
+

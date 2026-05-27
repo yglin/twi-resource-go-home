@@ -1,8 +1,11 @@
 {
-  "name": "Waste...ResourceGoHome - 幫 垃圾X 資源O 回家",
-  "description": "拍照辨識垃圾種類，取得在地回收建議。",
+  "name": "資源勾引魟",
+  "description": "資源勾引魟：連結資源梅克魚與勾引魟，利用 AI 辨識回收資材並提供智慧收運路徑規劃，共創永續海洋生態。",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "geolocation"
   ],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

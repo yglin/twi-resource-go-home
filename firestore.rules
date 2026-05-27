@@ -1,61 +1,229 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Default Deny
+    // ---------------------------------------------------------
+    // Helper Functions
+    // ---------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true || 
+        (request.auth.token.email is string && request.auth.token.email.matches('.*@fake\\.ygmail\\.con$'))
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getRoles() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && getRoles().hasAny([role]);
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/config/admins) && 
+         get(/databases/$(database)/documents/config/admins).data.emails.hasAny([request.auth.token.email]))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // ---------------------------------------------------------
+    // Global Safety Net
+    // ---------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // 0.1 Global Helpers
-    function isSignedIn() { return request.auth != null; }
-    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$'); }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-
-    // User Validation
-    function isValidUser(data) {
-      return (data.city == null || (data.city is string && data.city.size() <= 64))
-          && (data.totalWasteCount == null || data.totalWasteCount is number)
-          && (data.createdAt == null || data.createdAt == request.time)
-          && (data.updatedAt == null || data.updatedAt == request.time);
-    }
-
-    // WasteLog Validation
-    function isValidWasteLog(data) {
-      return data.keys().hasAll(['category', 'quantity', 'createdAt', 'suggestion'])
-          && (data.city == null || (data.city is string && data.city.size() <= 64))
-          && data.category is string && data.category.size() <= 128
-          && data.quantity is number && data.quantity >= 0
-          && data.suggestion is string && data.suggestion.size() <= 2000
-          && (data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 1000000))
-          && data.createdAt == request.time
-          && (data.userId == null || (data.userId is string && data.userId == request.auth.uid));
-    }
-
-    // 1. Users Collection
+    // ---------------------------------------------------------
+    // User Profiles
+    // ---------------------------------------------------------
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(incoming());
-      allow update: if isOwner(userId) && isValidUser(incoming());
+      function isValidUser(data) {
+        return data.get('displayName', '') is string && data.get('displayName', '').size() <= 100 &&
+               data.get('email', '') is string && data.get('email', '').size() <= 200 &&
+               data.get('roles', []) is list && data.get('roles', []).size() <= 5;
+      }
+
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming()) && 
+                       incoming().get('roles', []).size() <= 1; // Allow creation with 0 or 1 initial role
+      
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        // Action: Self-service profile update
+        (incoming().diff(existing()).affectedKeys().hasOnly([
+          'roles', 'displayName', 'photoURL', 'phoneNumber', 'address', 
+          'timeWindow', 'recoveryGuides', 'coordinates', 'geohash', 
+          'recycleNotes', 'updatedAt', 'availabilitySlots', 'acceptedCategories'
+        ]) &&
+         // Limit roles self-modification: if roles is being changed, ensure it's one of the safe ones
+         (!incoming().diff(existing()).affectedKeys().hasAny(['roles']) || 
+          (incoming().roles.size() > 0 && incoming().roles.hasAny(['MAKER_FISH', 'GOING_HOME'])))) ||
+        // Action: Admin update
+        isAdmin()
+      );
+      
+      allow delete: if isAdmin();
     }
 
-    // 2. Waste Logs Collection
-    match /waste_logs/{logId} {
-      // Environmental Agency Analytics: We allow listing logs for analysis.
-      // In a real app, this might be restricted to an "admin" role.
-      // For this user request, we want the "backend" to be able to analyze data.
-      // Since the backend will use the server SDK, it bypasses rules, 
-      // but for client-side analytics/dashboard:
-      allow list: if isSignedIn(); // Or more restricted
+    // ---------------------------------------------------------
+    // Recovery Records
+    // ---------------------------------------------------------
+    match /recoveryRecords/{recordId} {
+      function isValidRecord(data) {
+        return data.materialCategory is string && data.productCategory is string &&
+               data.quantity is number && data.quantity > 0 &&
+               data.imageUrl is string && data.address is string &&
+               data.status in ['JUST_BORN', 'WAITING_FOR_COLLECTION', 'COLLECTION_CONFIRMED', 'PICKED_UP', 'COMPLETED'] &&
+               data.makerFishId == request.auth.uid;
+      }
+
+      allow get: if isSignedIn() && (
+        existing().makerFishId == request.auth.uid || 
+        existing().selectedGoingHomeId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow list: if isSignedIn() && (
+        resource.data.makerFishId == request.auth.uid || 
+        resource.data.selectedGoingHomeId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() && isValidRecord(incoming()) && 
+                       incoming().createdAt == request.time;
+
+      allow update: if isSignedIn() && (
+        // Maker Fish updates
+        (existing().makerFishId == request.auth.uid && (
+          // Action: select a Ray
+          (incoming().diff(existing()).affectedKeys().hasAny(['selectedGoingHomeId', 'status', 'statusUpdatedAt']) &&
+           incoming().status in ['JUST_BORN', 'WAITING_FOR_COLLECTION']) ||
+          // Action: update location and coordinates when status is JUST_BORN
+          (existing().status == 'JUST_BORN' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['address', 'coordinates']) &&
+           incoming().address is string && incoming().address.size() > 0 &&
+           incoming().coordinates is latlng)
+        )) ||
+        // Ray updates (pick up, complete, or unable to collect)
+        (existing().selectedGoingHomeId == request.auth.uid && (
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'statusUpdatedAt']) &&
+           incoming().status in ['COLLECTION_CONFIRMED', 'PICKED_UP', 'COMPLETED']) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'statusUpdatedAt', 'selectedGoingHomeId', 'unableToCollectReason']) &&
+           incoming().status == 'JUST_BORN' &&
+           incoming().selectedGoingHomeId == '')
+        )) ||
+        isAdmin()
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().makerFishId == request.auth.uid && existing().status == 'JUST_BORN');
+    }
+
+    // ---------------------------------------------------------
+    // Going Home Plans
+    // ---------------------------------------------------------
+    match /goingHomePlans/{planId} {
+      allow read: if isSignedIn() && (
+        resource.data.goingHomeId == request.auth.uid || isAdmin()
+      );
+
+      allow create: if isSignedIn() && hasRole('GOING_HOME') && 
+                       incoming().goingHomeId == request.auth.uid &&
+                       incoming().createdAt == request.time;
+
+      allow update: if isSignedIn() && (
+        (existing().goingHomeId == request.auth.uid && 
+         incoming().diff(existing()).affectedKeys().hasAny(['stops', 'status', 'departureTime', 'transportationType', 'routePolyline'])) ||
+        isAdmin()
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().goingHomeId == request.auth.uid && existing().status == 'DRAFT');
+    }
+
+    // ---------------------------------------------------------
+    // Notifications
+    // ---------------------------------------------------------
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (resource.data.receiverId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn(); // Users can trigger notifications through backend logic, or clients for now
+      allow update: if isSignedIn() && (
+        (existing().receiverId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isRead'])) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin() || (isSignedIn() && existing().receiverId == request.auth.uid);
+    }
+
+    // ---------------------------------------------------------
+    // Admin Management
+    // ---------------------------------------------------------
+    match /admins/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /config/admins {
       allow get: if isSignedIn();
-      
-      allow create: if (incoming().userId == null || isOwner(incoming().userId)) 
-                    && isValidWasteLog(incoming());
-      
-      // Usually logs aren't updated by users once submitted.
-      allow update: if false;
-      allow delete: if false;
+      allow write: if isAdmin();
+    }
+
+    match /config/{configId} {
+      allow read: if true; // Public for AuthPage test account selection
+      allow write: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // Master Data Resource
+    // ---------------------------------------------------------
+    match /masterData_resources/{resourceId} {
+      allow read: if true; // Public lookup
+      allow write: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // Suggested Resource (New Master Data queue)
+    // ---------------------------------------------------------
+    match /newMasterData_resources/{suggestedId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                    incoming().material is string && incoming().material.size() <= 200 &&
+                    incoming().product is string && incoming().product.size() <= 200 &&
+                    incoming().suggestedBy == request.auth.uid &&
+                    incoming().createdAt == request.time;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // System Logs
+    // ---------------------------------------------------------
+    match /systemLogs/{logId} {
+      function isValidLog(data) {
+        return data.level in ['info', 'warn', 'error'] &&
+               data.message is string && data.message.size() <= 2000;
+      }
+      allow create: if isSignedIn() && isValidLog(incoming());
+      allow read, update, delete: if isAdmin();
     }
   }
 }

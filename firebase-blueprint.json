@@ -1,40 +1,185 @@
 {
   "entities": {
     "User": {
-      "title": "User Profile",
-      "description": "Registered user information",
+      "title": "User",
+      "description": "User profile information",
       "type": "object",
       "properties": {
-        "city": { "type": "string", "description": "The county/city where the user resides" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Registration time" },
-        "totalWasteCount": { "type": "number", "description": "Total items logged by the user" }
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "address": { "type": "string" },
+        "timeWindow": { "type": "object" },
+        "recoveryGuides": { "type": "array", "items": { "type": "object" } },
+        "availabilitySlots": { "type": "array", "items": { "$ref": "AvailabilitySlot" } },
+        "coordinates": { "type": "object", "description": "GeoPoint as { latitude, longitude }" },
+        "geohash": { "type": "string", "description": "Geohash string for searching" },
+        "recycleNotes": { "type": "string" }
       },
-      "required": ["city", "createdAt"]
+      "required": ["displayName", "email", "roles"]
     },
-    "WasteLog": {
-      "title": "Waste Log Entry",
-      "description": "A single record of trash identified by the user",
+    "AvailabilitySlot": {
+      "title": "Availability Slot",
+      "description": "A time slot when the user is available",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "description": "The ID of the user who logged this (can be null for anonymous)" },
-        "city": { "type": "string", "description": "The city where the log was recorded" },
-        "category": { "type": "string", "description": "The type of trash identified" },
-        "quantity": { "type": "number", "description": "The quantity of trash" },
-        "suggestion": { "type": "string", "description": "Recycling suggestion provided by AI" },
-        "imageUrl": { "type": "string", "description": "Optional URL to the image" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When this log was created" }
+        "dayOfWeek": { "type": "integer", "description": "0-6 (Sun-Sat)" },
+        "startTime": { "type": "string", "description": "HH:mm" },
+        "endTime": { "type": "string", "description": "HH:mm" }
       },
-      "required": ["city", "category", "quantity", "createdAt"]
+      "required": ["dayOfWeek", "startTime", "endTime"]
+    },
+    "RecoveryRecord": {
+      "title": "Recovery Record",
+      "description": "A record of recyclable materials",
+      "type": "object",
+      "properties": {
+        "materialCategory": { "type": "string" },
+        "productCategory": { "type": "string" },
+        "quantity": { "type": "number" },
+        "aiSuggestion": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "address": { "type": "string" },
+        "timeWindow": { "type": "object" },
+        "coordinates": { "type": "object" },
+        "geohash": { "type": "string" },
+        "recycleNotes": { "type": "string" },
+        "makerFishId": { "type": "string" },
+        "candidateGoingHomeIds": { "type": "array", "items": { "type": "string" } },
+        "selectedGoingHomeId": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "statusUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["materialCategory", "productCategory", "quantity", "imageUrl", "address", "coordinates", "makerFishId", "status", "createdAt"]
+    },
+    "GoingHomePlan": {
+      "title": "Going Home Plan",
+      "description": "A collection route plan for a Ray",
+      "type": "object",
+      "properties": {
+        "goingHomeId": { "type": "string" },
+        "departureTime": { "type": "string", "format": "date-time" },
+        "transportationType": { "type": "string" },
+        "stops": { "type": "array", "items": { "type": "object" } },
+        "routePolyline": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["goingHomeId", "departureTime", "stops", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notifications",
+      "type": "object",
+      "properties": {
+        "receiverId": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "recordId": { "type": "string" },
+        "planId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["receiverId", "type", "title", "content", "isRead", "createdAt"]
+    },
+    "MasterDataResource": {
+      "title": "Recyclable Resource Master Data",
+      "description": "Lookup table for recyclable resources",
+      "type": "object",
+      "properties": {
+        "material": { "type": "string" },
+        "product": { "type": "string" },
+        "defaultSuggestion": { "type": "string" },
+        "icon": { "type": "string" },
+        "keywords": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["material", "product", "defaultSuggestion"]
+    },
+    "NewMasterDataResource": {
+      "title": "Suggested Recyclable Resource",
+      "description": "Crowdsourced suggestions for recyclable resources awaiting admin moderation",
+      "type": "object",
+      "properties": {
+        "material": { "type": "string" },
+        "product": { "type": "string" },
+        "defaultSuggestion": { "type": "string" },
+        "icon": { "type": "string" },
+        "keywords": { "type": "array", "items": { "type": "string" } },
+        "suggestedBy": { "type": "string" },
+        "suggestedByEmail": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["material", "product", "defaultSuggestion", "suggestedBy", "createdAt"]
+    },
+    "Config": {
+      "title": "System Configuration",
+      "description": "System-wide settings and test accounts",
+      "type": "object",
+      "properties": {
+        "accounts": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "uid": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "SystemLog": {
+      "title": "System Log",
+      "description": "System trace log for backend, frontend errors, API calls and troubleshooting",
+      "type": "object",
+      "properties": {
+        "level": { "type": "string", "enum": ["info", "warn", "error"] },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "service": { "type": "string" },
+        "details": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" }
+      },
+      "required": ["level", "message", "timestamp"]
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "User",
-      "description": "User profiles"
+      "description": "User profiles and settings"
     },
-    "waste_logs/{logId}": {
-      "schema": "WasteLog",
-      "description": "All waste collection data"
+    "recoveryRecords/{recordId}": {
+      "schema": "RecoveryRecord",
+      "description": "Recycling records created by Maker Fish"
+    },
+    "goingHomePlans/{planId}": {
+      "schema": "GoingHomePlan",
+      "description": "Route plans created by Rays"
+    },
+    "notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "System notifications for users"
+    },
+    "masterData_resources/{resourceId}": {
+      "schema": "MasterDataResource",
+      "description": "Authority data for resource types"
+    },
+    "newMasterData_resources/{suggestedId}": {
+      "schema": "NewMasterDataResource",
+      "description": "Suggested resource types submitted by users"
+    },
+    "config/{configId}": {
+      "schema": "Config",
+      "description": "System configuration documents"
+    },
+    "systemLogs/{logId}": {
+      "schema": "SystemLog",
+      "description": "System-wide diagnostic and event logs"
     }
   }
 }

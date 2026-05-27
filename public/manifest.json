@@ -1,0 +1,22 @@
+{
+  "name": "資源勾引魟 - Resources Going Home",
+  "short_name": "資源勾引魟",
+  "description": "幫助資源 Going Home。AI 智慧垃圾分類、收運排程與低碳航點路徑規劃！",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
