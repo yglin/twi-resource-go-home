@@ -8,6 +8,7 @@
 * **回收記錄**：APP 從垃圾照片中辨識出某類可回收資源時，會在後端資料庫中記錄一筆回收記錄。註：APP 可能從同一張垃圾照片中辨識出多種不同分類的可回收資源，每一種類的可回收資源算一筆回收記錄。
 * **資源梅克魚**：擁有資源梅克魚角色的使用者。
 * **資源勾引魟**：擁有資源勾引魟角色的使用者。
+* **資源瑞莎魺**：擁有資源瑞莎魺角色的使用者。
 * **魚的回收記錄**：由目前登入的資源梅克魚所產生的回收記錄清單。
 * **魚的新回收記錄**：魚的回收記錄中，滿足篩選條件「資料欄位『狀態』＝剛出生」的回收記錄清單。
 * **魟的回收記錄**：滿足篩選條件「資料欄位『資源勾引魟』的值等於目前登入的資源勾引魟的 ID」的回收記錄。
@@ -20,86 +21,20 @@
 ## 使用者角色 (User Roles)
 
 * **資源梅克魚 (Resource Maker Fish)**
-  - 使用需求：APP 幫他辨識出垃圾中的可回收資源，給予分類回收建議，以及附近收受該類可回收資源的資源勾引魟的資訊。做好可回收資源的前置處理後，通知資源回收魟前來收取。
+  - 使用需求：APP 幫他辨識出垃圾中的可回收資源，給予分類回收建議，以及附近收受該類可回收資源的資源勾引魟的資訊。做好可回收資源的前置處理後，選擇某位資源回收魟並通知其前來收取。
+* **資源瑞莎魺 (Resource Recycler)**
+  - 使用需求：收購由資源勾引魟運送來的可回收資源。資源瑞莎魺在APP中的個人資料須註明自己會收受哪些類別的可回收資源、以及每類可回收資源的收購價格（NTD/數量單位）。
 * **資源勾引魟 (Resource Going Home)**
-  - 使用需求：根據資源梅克魚寄來通知和回收記錄，APP 依照每個回收記錄的資料（數量、地址、開放時段……等等），自動幫資源勾引魟規劃出一個收運計畫。
+  - 使用需求：
+    - 在APP中的個人資料須註明自己會收受哪些類別的可回收資源以及回收的前置處理建議。
+    - 根據資源梅克魚寄來通知和回收記錄，請AI依照每個回收記錄的資料（可回收資源的類別、數量、地址、開放時段……等等）＋附近的資源瑞莎魺的收購價格，自動幫資源勾引魟規劃出一個收運計畫。
 * **系統管理者 (System Admin)**
   - 使用需求：維護系統主檔資料（如可回收資源類別），並具備管理使用者與回收記錄的權限。
   - **安全性註記**：此角色不開放使用者自選。系統透過獨立的管理者名單 (UID lookup) 進行授權。
 
 ## 資料實體 (Data Entities)
 
-### 使用者 (User)
-| name | type | label（中文） | description | required | primary key | default value |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| id | string | 唯一識別碼 | Firebase Auth UID | Yes | Yes | - |
-| displayName | string | 顯示名稱 | 使用者顯示名稱 | Yes | No | - |
-| photoURL | string | 頭像 URL | 使用者頭像連結 | No | No | - |
-| email | string | 電子郵件 | 使用者登入信箱 | Yes | No | - |
-| phoneNumber | string | 聯絡電話 | 收運時緊急聯絡使用 | No | No | - |
-| roles | array (string) | 帳號角色 | `MAKER_FISH`, `GOING_HOME` (使用者可擁有多重角色，並隨時增減) | Yes | No | `[]` |
-| isAdmin | boolean | (隱含) 管理者 | 系統內部權限，由 `admins` 集合控管，非使用者自選 | No | No | `false` |
-| address | string | 預設地址 | 梅克魚的回收物預設交付地址 | No | No | - |
-| timeWindow | object | 預設時段 | 梅克魚可配合的交付時段 (JSON) | No | No | `{}` |
-| recoveryGuides | array (object) | 回收指引列表 | 勾引魟收取的資源類別與對應之專屬處理建議 | No | No | `[]` |
-| acceptedCategories | array (string) | 已選定回收類別 | 使用者目前關注、已勾選或有興趣參與的可回收資源 (Resource) 主檔 ID 陣列。用以初始化與比對 recoveryGuides。 | No | No | `[]` |
-| coordinates | geopoint | 地圖座標 | 經緯度座標 (適用梅克魚) | No | No | - |
-| recycleNotes | string | 回收備註 | 給勾引魟的額外提醒（如：放置地點、自取說明等） | No | No | - |
-
-### 回收記錄 (Recovery Record)
-| name | type | label（中文） | description | required | primary key | default value |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| id | string | 記錄 ID | 回收記錄唯一識別碼 | Yes | Yes | - |
-| materialCategory | string | 材質分類 | 資源的主要材質類別 | Yes | No | - |
-| productCategory | string | 產品分類 | 資源的產品細類 | Yes | No | - |
-| quantity | number | 數量 | 辨識出的資源數量 | Yes | No | 1 |
-| aiSuggestion | string | AI 建議 | AI 提供之分類及回收處理建議 | Yes | No | - |
-| imageUrl | string | 照片 URL | 上傳的原始照片 URL | Yes | No | - |
-| address | string | 交付地址 | 可回收資源所在的地點地址 | Yes | No | - |
-| timeWindow | object | 開放時段 | 可收取的時段 | Yes | No | - |
-| coordinates | geopoint | 地圖座標 | 資源所在地的經緯度座標 | Yes | No | - |
-| recycleNotes | string | 回收備註 | 給勾引魟的額外提醒，產出時預設套用梅克魚備註 | No | No | - |
-| makerFishId | string | 梅克魚 ID | 產出者的使用者 ID | Yes | No | - |
-| candidateGoingHomeIds | array (string) | 候選魟 IDs | 附近可收取的勾引魟名單 | No | No | `[]` |
-| selectedGoingHomeId | string | 選定魟 ID | 最終被選定的勾引魟 ID | No | No | - |
-| status | string | 狀態 | `JUST_BORN`, `WAITING_FOR_COLLECTION`, `COLLECTION_CONFIRMED`, `PICKED_UP`, `COMPLETED` | Yes | No | `JUST_BORN` |
-| createdAt | timestamp | 建立時間 | 記錄建立的時間戳記 | Yes | No | `serverTimestamp()` |
-| statusUpdatedAt | timestamp | 狀態更新時間 | 最後一次變更狀態的時間 | No | No | - |
-
-### 資源勾引計畫 (Going Home Plan)
-| name | type | label（中文） | description | required | primary key | default value |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| id | string | 計畫 ID | 計畫唯一識別碼 | Yes | Yes | - |
-| goingHomeId | string | 勾引魟 ID | 負責執行的資源勾引魟 ID | Yes | No | - |
-| departureTime | timestamp | 出發時間 | 魟計畫出發的時間 | Yes | No | - |
-| transportationType | string | 建議交通工具 | AI 建議或魟選定的交通方式 | No | No | - |
-| stops | array (object) | 收取點清單 | 每一項包含 `arrivalTime`, `recordId`, `status` | Yes | No | `[]` |
-| routePolyline | string | 路線軌跡 | Encoded polyline 用於地圖顯示 | No | No | - |
-| status | string | 計畫狀態 | `DRAFT`, `APPROVED`, `COMPLETED` | Yes | No | `DRAFT` |
-| createdAt | timestamp | 建立時間 | 計畫建立的時間戳記 | Yes | No | `serverTimestamp()` |
-
-### 通知 (Notification)
-| name | type | label（中文） | description | required | primary key | default value |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| id | string | 通知 ID | 通知唯一識別碼 | Yes | Yes | - |
-| receiverId | string | 接收者 ID | 接收通知的使用者 ID | Yes | No | - |
-| type | string | 通知類型 | `SYSTEM`, `PLAN_CONFIRMED`, `COLLECTION_COMPLETED`, `NEW_RECORD_REMINDER` | Yes | No | - |
-| title | string | 標題 | 通告簡題 | Yes | No | - |
-| content | string | 內容 | 通知本文內容 | Yes | No | - |
-| recordId | string | 回收記錄 ID | (選擇性) 關連之記錄 | No | No | - |
-| planId | string | 計畫 ID | (選擇性) 關連之計畫 | No | No | - |
-| isRead | boolean | 是否已讀 | 狀態旗標 | Yes | No | `false` |
-| createdAt | timestamp | 建立時間 | 通知建立的時間戳記 | Yes | No | `serverTimestamp()` |
-
-### 可回收資源 (Recyclable Resource Master Data)
-| name | type | label（中文） | description | required | primary key | default value |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| id | string | 資源類別 ID | 主檔唯一識別碼 | Yes | Yes | - |
-| material | string | 材質分類 | 主要材質 (例：塑膠、紙...) | Yes | No | - |
-| product | string | 產品名稱 | 產品細類 (例：寶特瓶...) | Yes | No | - |
-| defaultSuggestion | string | 通用指引 | 該類別通用的基本處理規則 | Yes | No | - |
-| icon | string | 圖示 | UI 顯示用的圖示名稱 | No | No | - |
-| keywords | array (string) | 關鍵字 | 輔助 AI 辨識的標籤 | No | No | `[]` |
+請見[DATA_ENTITIES.md](DATA_ENTITIES)
 
 ## AI 提示文 (AI Prompts)
 
@@ -335,7 +270,7 @@
 
 2. **地理距離過濾 (Geographic Filter)**:
    - 若回收記錄本身具有座標（`rec.coordinates`），且候選勾引魟在個人資料中也設定了座標（`ray.coordinates`），系統會使用半徑篩選演算法計算兩者的直線距離。
-   - 篩選標準：兩者之間的直線距離必須**小於或等於 10 公里**（使用 `geofire-common` 的 `distanceBetween` 計算距離，判斷 `distKm <= 10`）。
+   - 篩選標準：兩者之間的直線距離必須**小於或等於勾引魟個人設定的「最大收運範圍 (公里)」** `maxDistance`（使用 `geofire-common` 的 `distanceBetween` 計算距離，判斷 `distKm <= ray.maxDistance`）。若該勾引魟未特定設定此範圍，則系統自動保底以此數值為 **10 公里**（即 `distKm <= 10`）作為判定限界。
    - 保底機制：若回收記錄或候選勾引魟兩者之中有任一方未提供座標資訊，則默認包含在列表中，不因缺少座標而被過濾掉。
 
 3. **回收分類相容過濾（RecoveryGuides Filter）**:

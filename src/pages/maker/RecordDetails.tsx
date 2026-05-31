@@ -23,6 +23,12 @@ import { ArrowLeft, MapPin, Clock, Star, Navigation, CheckCircle2, Package, Load
 import { toast } from 'sonner';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 
+const isValidCoordinate = (coords: any): coords is { latitude: number; longitude: number } => {
+  return !!coords && 
+         typeof coords.latitude === 'number' && !isNaN(coords.latitude) &&
+         typeof coords.longitude === 'number' && !isNaN(coords.longitude);
+};
+
 export default function RecordDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -101,16 +107,17 @@ export default function RecordDetails() {
       
       const rays = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
       
-      // Filter by distance (e.g., 10km) and category compatibility (RecoveryGuides Filter)
+      // Filter by distance (using Ray's maxDistance, defaulting to 10km) and category compatibility (RecoveryGuides Filter)
       const filtered = rays.filter(ray => {
         // 1. Distance filter (Default to true if coordinates are missing on either side to match old design guarantee)
         let passDistance = true;
-        if (ray.coordinates && rec.coordinates) {
+        if (isValidCoordinate(ray.coordinates) && isValidCoordinate(rec.coordinates)) {
           const distKm = distanceBetween(
             [rec.coordinates.latitude, rec.coordinates.longitude],
             [ray.coordinates.latitude, ray.coordinates.longitude]
           );
-          passDistance = distKm <= 10;
+          const allowedMaxDistance = ray.maxDistance !== undefined && ray.maxDistance !== null ? ray.maxDistance : 10;
+          passDistance = distKm <= allowedMaxDistance;
         }
 
         // 2. Category compatibility filter
@@ -234,7 +241,7 @@ export default function RecordDetails() {
                 </div>
                 <div className="text-center font-bold">
                   <span className="block text-4xl text-cyan-600 leading-none">{record.quantity}</span>
-                  <span className="text-xs text-slate-400">數量</span>
+                  <span className="text-xs text-slate-400">數量 ({record.unit || '個'})</span>
                 </div>
               </div>
 
@@ -407,26 +414,43 @@ export default function RecordDetails() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {nearbyRays.map(ray => (
-                      <div key={ray.id} className="p-4 rounded-2xl border border-slate-100 hover:border-cyan-200 hover:bg-cyan-50 transition-all cursor-pointer group" onClick={() => setConfirmingRay(ray)}>
-                        <div className="flex items-center gap-3 mb-3">
-                          <Avatar className="h-10 w-10">
-                            <AvatarImage src={ray.photoURL} />
-                            <AvatarFallback>{ray.displayName?.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="text-sm font-bold truncate">{ray.displayName}</p>
-                            <div className="flex items-center gap-1">
-                              <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                              <span className="text-[10px] text-slate-500 font-bold">4.9 (127+)</span>
+                    {nearbyRays.map(ray => {
+                      const distKm = (isValidCoordinate(ray.coordinates) && isValidCoordinate(record?.coordinates))
+                        ? distanceBetween(
+                            [record.coordinates.latitude, record.coordinates.longitude],
+                            [ray.coordinates.latitude, ray.coordinates.longitude]
+                          )
+                        : null;
+
+                      return (
+                        <div key={ray.id} className="p-4 rounded-2xl border border-slate-100 hover:border-cyan-200 hover:bg-cyan-50 transition-all cursor-pointer group" onClick={() => setConfirmingRay(ray)}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={ray.photoURL} />
+                              <AvatarFallback>{ray.displayName?.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="text-sm font-bold truncate">{ray.displayName}</p>
+                              <div className="flex items-center gap-1">
+                                <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                                <span className="text-[10px] text-slate-500 font-bold">4.9 (127+)</span>
+                              </div>
+                              {distKm !== null && (
+                                <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                  <Navigation className="w-3 h-3 text-cyan-600 shrink-0" />
+                                  <span>距離：{distKm.toFixed(1)} km</span>
+                                  <span className="text-slate-300">|</span>
+                                  <span>最大範圍：{ray.maxDistance !== undefined && ray.maxDistance !== null ? `${ray.maxDistance} km` : '10 km'}</span>
+                                </p>
+                              )}
                             </div>
                           </div>
+                          <Button className="w-full rounded-full h-8 text-xs bg-slate-900 group-hover:bg-cyan-600">
+                            選擇收運
+                          </Button>
                         </div>
-                        <Button className="w-full rounded-full h-8 text-xs bg-slate-900 group-hover:bg-cyan-600">
-                          選擇收運
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

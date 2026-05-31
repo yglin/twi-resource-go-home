@@ -139,7 +139,7 @@ async function startServer() {
   // AI-powered routing plan endpoint
   app.post("/api/planning/generate", async (req, res) => {
     try {
-      const { departureLocation, departureTime, records } = req.body;
+      const { departureLocation, departureTime, records, vehicles } = req.body;
       if (!departureLocation || !departureTime || !records || !Array.isArray(records)) {
         await logToSystem("warn", "Requested planning with missing parameters", "route-planning");
         return res.status(400).json({ error: "Required fields: departureLocation, departureTime, records" });
@@ -148,7 +148,8 @@ async function startServer() {
       await logToSystem("info", "Starting AI Route Planning", "route-planning", {
         departureLocation,
         departureTime,
-        recordCount: records.length
+        recordCount: records.length,
+        vehicles
       });
 
       const { GoogleGenAI, Type } = await import("@google/genai");
@@ -167,6 +168,19 @@ async function startServer() {
         }
       });
 
+      const vehicleMapping: { [key: string]: string } = {
+        trolley: '手推車 (Trolley)',
+        bicycle: '自行車 (Bicycle)',
+        motorcycle: '機車 (Motorcycle)',
+        minivan: '廂型車 (Minivan)',
+        truck: '小貨車 (Truck)',
+        onfoot: '步行手提 (On Foot)'
+      };
+
+      const selectedVehicleLabels = Array.isArray(vehicles) && vehicles.length > 0
+        ? vehicles.map(v => vehicleMapping[v] || v)
+        : Object.values(vehicleMapping);
+
       const promptString = `你是一位資深的物流調度員。請根據以下提供的回收記錄列表，規劃一個最有效率的「資源勾引計畫」。
 
 出發地點: 
@@ -178,11 +192,14 @@ ${departureTime}
 回收記錄列表:
 ${JSON.stringify(records, null, 2)}
 
+資源勾引魟擁有的可用交通工具列表:
+${selectedVehicleLabels.map(v => `- ${v}`).join('\n')}
+
 規劃目標:
 1. 縮短總行駛距離。
 2. 確保在梅克魚要求的「開放時段」內抵達。
 3. 提供每個點的預計到達時間 (arrivalTime)。
-4. 建議最適合的交通工具（例如：機車、貨車、三輪車）。
+4. 請從上方「資源勾引魟擁有的可用交通工具列表」中，為本次收運任務挑選最合適的一個交通工具（請務必直接從可用交通工具列表中進行選擇）。
 
 請規劃合理的順序 (sortingOrder 由 1 開始編號)。
 請嚴格依照 schema 格式回傳，不要有任何額外的文字敘述。`;
@@ -320,17 +337,18 @@ ${JSON.stringify(records, null, 2)}
       });
 
       const prompt = `你是一個專業的環保回收 AI 指南。請辨識這張圖片中的主要物品，並根據其材質與形狀分類。
-請優先比對已知材質主檔，如果圖片中的物品能對應上主檔中的某個(material, product)類別，請務必精確使用該組名稱；
-如果完全不匹配，再自行生成具代表性的全新 (material, category) 名稱。
+請優先比對已知材質主檔，如果圖片中的物品能對應上主檔中的某個(material, product)類別，請務必精確使用該組名稱，並帶入其單位；
+如果完全不匹配，再自行生成具代表性的全新 (material, category) 名稱與數量單位 (如「瓶」、「片」、「公升」、「個」等，預設為「個」)。
 請務必返回以下格式的 JSON 資料，且不要包含任何額外的 Markdown 包裝符或對話：
 {
   "material": "材質名稱 (如: 塑膠, 紙類, 金屬)",
   "category": "產品名稱 (如: 寶特瓶, 紙箱, 易開罐)",
   "quantity": 1,
+  "unit": "數量單位 (如: 瓶, 片, 公升, 個)",
   "suggestion": "給使用者的分類回收建議 (如: 請洗淨後壓扁)",
   "confidence": 0.95
 }
-參考已知材質主檔：${Array.isArray(masterData) ? masterData.map(m => `${m.material}-${m.product}`).join(', ') : ""}`;
+參考已知材質主檔：${Array.isArray(masterData) ? masterData.map(m => `${m.material}-${m.product} (單位: ${m.unit || '個'})`).join(', ') : ""}`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
@@ -350,9 +368,10 @@ ${JSON.stringify(records, null, 2)}
               material: { type: Type.STRING },
               category: { type: Type.STRING },
               quantity: { type: Type.NUMBER },
+              unit: { type: Type.STRING },
               suggestion: { type: Type.STRING }
             },
-            required: ["material", "category", "quantity", "suggestion"]
+            required: ["material", "category", "quantity", "unit", "suggestion"]
           }
         }
       });
@@ -378,6 +397,7 @@ ${JSON.stringify(records, null, 2)}
         if (exactMatch) {
           parsed.material = exactMatch.material;
           parsed.category = exactMatch.product;
+          parsed.unit = exactMatch.unit || parsed.unit || "個";
           if (exactMatch.defaultSuggestion && !parsed.suggestion) {
             parsed.suggestion = exactMatch.defaultSuggestion;
           }
@@ -391,6 +411,7 @@ ${JSON.stringify(records, null, 2)}
           if (closeMatch) {
             parsed.material = closeMatch.material;
             parsed.category = closeMatch.product;
+            parsed.unit = closeMatch.unit || parsed.unit || "個";
             if (closeMatch.defaultSuggestion && !parsed.suggestion) {
               parsed.suggestion = closeMatch.defaultSuggestion;
             }
@@ -404,10 +425,10 @@ ${JSON.stringify(records, null, 2)}
       await logToSystem("error", `Gemini Image Analysis Failed: ${error.message}`, "analyze-image", error);
       
       const defaultItems = [
-        { material: "塑膠", category: "高級PET寶特瓶", quantity: 10, suggestion: "請先清空殘餘液體、撕除外層包裝紙，並踩扁壓實以節省籃車堆疊空間。" },
-        { material: "紙類", category: "瓦楞紙快遞箱", quantity: 4, suggestion: "請清除外部封箱膠帶、託運單貼紙，展開壓平後整齊綑綁。" },
-        { material: "金屬", category: "鋁製易開罐", quantity: 15, suggestion: "請以清水沖洗，壓扁後可由本系統高效率魟魚全數收載。" },
-        { material: "玻璃", category: "玻璃醬油瓶", quantity: 2, suggestion: "屬易碎貴重物品。請沖洗乾淨、瀝乾水分，並與非玻璃類資材分開裝箱裝袋。" }
+        { material: "塑膠", category: "高級PET寶特瓶", quantity: 10, unit: "瓶", suggestion: "請先清空殘餘液體、撕除外層包裝紙，並踩扁壓實以節省籃車堆疊空間。" },
+        { material: "紙類", category: "瓦楞紙快遞箱", quantity: 4, unit: "個", suggestion: "請清除外部封箱膠帶、託運單貼紙，展開壓平後整齊綑綁。" },
+        { material: "金屬", category: "鋁製易開罐", quantity: 15, unit: "罐", suggestion: "請以清水沖洗，壓扁後可由本系統高效率魟魚全數收載。" },
+        { material: "玻璃", category: "玻璃醬油瓶", quantity: 2, unit: "支", suggestion: "屬易碎貴重物品。請沖洗乾淨、瀝乾水分，並與非玻璃類資材分開裝箱裝袋。" }
       ];
       
       const picked = defaultItems[Math.floor(Math.random() * defaultItems.length)];

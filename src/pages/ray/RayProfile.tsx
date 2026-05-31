@@ -29,6 +29,7 @@ export default function RayProfile() {
   const [lat, setLat] = useState(profile?.coordinates?.latitude.toString() || '');
   const [lng, setLng] = useState(profile?.coordinates?.longitude.toString() || '');
   const [vehicles, setVehicles] = useState<string[]>(profile?.vehicles || []);
+  const [maxDistance, setMaxDistance] = useState(profile?.maxDistance?.toString() || '');
 
   const toggleVehicle = (vehicleId: string) => {
     setVehicles(prev => 
@@ -40,6 +41,12 @@ export default function RayProfile() {
 
   const handleSave = async () => {
     if (!user) return;
+    const distanceVal = maxDistance === '' ? null : parseFloat(maxDistance);
+    if (distanceVal !== null && (isNaN(distanceVal) || distanceVal < 0)) {
+      toast.error('最大收運距離必須為正數');
+      return;
+    }
+
     setLoading(true);
     try {
       await updateDocument('users', user.uid, {
@@ -47,7 +54,8 @@ export default function RayProfile() {
         address,
         phoneNumber: phone,
         coordinates: lat && lng ? new GeoPoint(parseFloat(lat), parseFloat(lng)) : undefined,
-        vehicles: vehicles
+        vehicles: vehicles,
+        maxDistance: distanceVal
       } as any);
       await refreshProfile();
       toast.success('個人資料已更新');
@@ -112,6 +120,24 @@ export default function RayProfile() {
                 <Input value={lng} onChange={e => setLng(e.target.value)} placeholder="121.564" />
               </div>
             </div>
+          </div>
+
+          <div className="space-y-2 pt-4 border-t border-slate-100">
+            <Label className="font-bold">最大收運距離 (公里)</Label>
+            <div className="flex items-center gap-2">
+              <Input 
+                type="number" 
+                step="0.1" 
+                value={maxDistance} 
+                onChange={e => setMaxDistance(e.target.value)} 
+                placeholder="無限制 / 例如: 10" 
+                className="max-w-[240px]"
+              />
+              <span className="text-sm font-semibold text-slate-500">公里 (km)</span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              設定您願意前往收運的最大單趟距離。若梅克魚的回收記錄與您的中心座標距離超過此範圍，系統將自動隱藏，保護您的調度效益。
+            </p>
           </div>
 
           <div className="space-y-4 pt-4 border-t border-slate-100">

@@ -28,6 +28,7 @@ export default function CreateRecord() {
   const [material, setMaterial] = useState(copiedRecord?.materialCategory || '');
   const [category, setCategory] = useState(copiedRecord?.productCategory || '');
   const [quantity, setQuantity] = useState(copiedRecord?.quantity || 1);
+  const [unit, setUnit] = useState(copiedRecord?.unit || '個');
   const [suggestion, setSuggestion] = useState(copiedRecord?.aiSuggestion || '');
   const [notes, setNotes] = useState(copiedRecord?.recycleNotes || '');
   const [location, setLocation] = useState(copiedRecord?.address || profile?.address || '');
@@ -93,6 +94,7 @@ export default function CreateRecord() {
       setMaterial(result.material || '');
       setCategory(result.category || '');
       setQuantity(result.quantity || 1);
+      setUnit(result.unit || '個');
       setSuggestion(result.suggestion || '');
       
       if (result.isFallback) {
@@ -138,11 +140,12 @@ export default function CreateRecord() {
           keywords: [trimmedCategory.toLowerCase(), trimmedMaterial.toLowerCase()],
           suggestedBy: user.uid,
           suggestedByEmail: user.email || '',
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          unit: unit.trim() || '個'
         };
         await createDocument('newMasterData_resources', newResourceSuggestion);
         await logToSystem(LogLevel.INFO, `送出全新資材品類建議: ${trimmedMaterial} / ${trimmedCategory}`, 'CreateRecord', { suggestedBy: user.email });
-        toast.success(`✨ 偵測到全新資材類別 [${trimmedMaterial} / ${trimmedCategory}]，已自動向管理員提報建議新增！`);
+        toast.success(`✨ 偵測到全新資材類別 [${trimmedMaterial} / ${trimmedCategory} | 單位：${unit.trim() || '個'}]，已自動向管理員提報建議新增！`);
       }
 
       const recordData = {
@@ -150,6 +153,7 @@ export default function CreateRecord() {
         materialCategory: trimmedMaterial,
         productCategory: trimmedCategory,
         quantity,
+        unit: unit.trim() || '個',
         aiSuggestion: suggestion,
         imageUrl: image || '', // Optional base64 image
         address: location,
@@ -245,7 +249,8 @@ export default function CreateRecord() {
                           setMaterial(selected.material);
                           setCategory(selected.product);
                           setSuggestion(selected.defaultSuggestion);
-                          toast.info(`已成功載入 [${selected.material} / ${selected.product}] 的預設回收建議！`);
+                          setUnit(selected.unit || '個');
+                          toast.info(`已成功載入 [${selected.material} / ${selected.product}] (單位: ${selected.unit || '個'}) 的預設回收建議！`);
                         }
                       }
                     }}
@@ -272,12 +277,18 @@ export default function CreateRecord() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>數量</Label>
-                <div className="flex items-center gap-4">
-                  <Button variant="outline" size="icon" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="rounded-full h-10 w-10 text-xl">−</Button>
-                  <span className="text-2xl font-bold w-12 text-center">{quantity}</span>
-                  <Button variant="outline" size="icon" onClick={() => setQuantity(quantity + 1)} className="rounded-full h-10 w-10 text-xl">+</Button>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>數量</Label>
+                  <div className="flex items-center gap-4">
+                    <Button variant="outline" size="icon" onClick={() => setQuantity(Math.max(1, quantity - 1))} type="button" className="rounded-full h-10 w-10 text-xl">−</Button>
+                    <span className="text-2xl font-bold w-12 text-center">{quantity}</span>
+                    <Button variant="outline" size="icon" onClick={() => setQuantity(quantity + 1)} type="button" className="rounded-full h-10 w-10 text-xl">+</Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>計量單位</Label>
+                  <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="如：瓶, 片, 個, 公升" />
                 </div>
               </div>
 

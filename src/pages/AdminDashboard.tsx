@@ -52,6 +52,8 @@ export default function AdminDashboard() {
   const [suggestion, setSuggestion] = useState('');
   const [keywords, setKeywords] = useState('');
   const [icon, setIcon] = useState('');
+  const [carbonReduced, setCarbonReduced] = useState<number | string>('');
+  const [unit, setUnit] = useState('個');
 
   // Suggested Resources State
   const [suggestions, setSuggestions] = useState<NewMasterDataResource[]>([]);
@@ -147,6 +149,8 @@ export default function AdminDashboard() {
     setSuggestion('');
     setKeywords('');
     setIcon('');
+    setCarbonReduced('');
+    setUnit('個');
     setIsResourceDialogOpen(true);
   };
 
@@ -157,16 +161,21 @@ export default function AdminDashboard() {
     setSuggestion(res.defaultSuggestion);
     setKeywords(res.keywords.join(', '));
     setIcon(res.icon || '');
+    setCarbonReduced(res.carbonReduced ?? '');
+    setUnit(res.unit || '個');
     setIsResourceDialogOpen(true);
   };
 
   const handleResourceSubmit = async () => {
+    const carbonVal = carbonReduced === '' ? 0 : Number(carbonReduced);
     const data = {
       material: material.trim(),
       product: product.trim(),
       defaultSuggestion: suggestion.trim(),
       keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-      icon
+      icon,
+      carbonReduced: isNaN(carbonVal) ? 0 : carbonVal,
+      unit: unit.trim() || '個'
     };
 
     if (!data.material || !data.product) {
@@ -210,18 +219,23 @@ export default function AdminDashboard() {
     setSuggestion(sug.defaultSuggestion);
     setKeywords(sug.keywords ? sug.keywords.join(', ') : '');
     setIcon(sug.icon || '');
+    setCarbonReduced(sug.carbonReduced ?? '');
+    setUnit(sug.unit || '個');
     setIsSuggestionDialogOpen(true);
   };
 
   const handleSuggestionApprove = async () => {
     if (!selectedSuggestion) return;
 
+    const carbonVal = carbonReduced === '' ? 0 : Number(carbonReduced);
     const data = {
       material: material.trim(),
       product: product.trim(),
       defaultSuggestion: suggestion.trim(),
       keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-      icon
+      icon,
+      carbonReduced: isNaN(carbonVal) ? 0 : carbonVal,
+      unit: unit.trim() || '個'
     };
 
     if (!data.material || !data.product) {
@@ -430,20 +444,22 @@ export default function AdminDashboard() {
                       <TableRow className="bg-slate-50/70">
                         <TableHead>材質</TableHead>
                         <TableHead>產品分類</TableHead>
-                        <TableHead className="max-w-xs">預設建議</TableHead>
+                        <TableHead>預設減碳效益 (公克/單位)</TableHead>
+                        <TableHead className="max-w-xs font-sans font-medium">預設建議</TableHead>
                         <TableHead>關鍵字</TableHead>
                         <TableHead className="text-right">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {resourcesLoading ? (
-                        <TableRow><TableCell colSpan={5} className="text-center py-12 text-slate-400">載入中...</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={6} className="text-center py-12 text-slate-400">載入中...</TableCell></TableRow>
                       ) : resources.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} className="text-center py-12 text-slate-400">尚無資料</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={6} className="text-center py-12 text-slate-400">尚無資料</TableCell></TableRow>
                       ) : resources.map((res) => (
                         <TableRow key={res.id}>
                           <TableCell className="font-semibold text-slate-800">{res.material}</TableCell>
                           <TableCell className="text-slate-700">{res.product}</TableCell>
+                          <TableCell className="font-mono text-emerald-600 font-semibold">{res.carbonReduced !== undefined ? `${res.carbonReduced} g / ${res.unit || '個'}` : '0 g / 個'}</TableCell>
                           <TableCell className="max-w-xs truncate text-slate-500" title={res.defaultSuggestion}>
                             {res.defaultSuggestion}
                           </TableCell>
@@ -713,6 +729,27 @@ export default function AdminDashboard() {
               <Label htmlFor="keywords">關鍵字 (逗號分隔，用於 AI 比對)</Label>
               <Input id="keywords" value={keywords} onChange={e => setKeywords(e.target.value)} placeholder="寶特瓶, 飲料罐, PET" />
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="unit">數量計量單位</Label>
+                <Input 
+                  id="unit" 
+                  value={unit} 
+                  onChange={e => setUnit(e.target.value)} 
+                  placeholder="如：個, 瓶, 片, 公升" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="carbonReduced">每單位減碳效益 (公克/單位)</Label>
+                <Input 
+                  id="carbonReduced" 
+                  type="number" 
+                  value={carbonReduced} 
+                  onChange={e => setCarbonReduced(e.target.value)} 
+                  placeholder="例如: 20" 
+                />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsResourceDialogOpen(false)} className="rounded-full">取消</Button>
@@ -749,6 +786,27 @@ export default function AdminDashboard() {
             <div className="space-y-2">
               <Label htmlFor="sug-keywords">關鍵字 (逗號分隔)</Label>
               <Input id="sug-keywords" value={keywords} onChange={e => setKeywords(e.target.value)} placeholder="寶特瓶, 飲料罐" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="sug-unit">計量單位</Label>
+                <Input 
+                  id="sug-unit" 
+                  value={unit} 
+                  onChange={e => setUnit(e.target.value)} 
+                  placeholder="如：個, 瓶, 片, 公升" 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sug-carbonReduced">每單位減碳效益 (公克/單位)</Label>
+                <Input 
+                  id="sug-carbonReduced" 
+                  type="number" 
+                  value={carbonReduced} 
+                  onChange={e => setCarbonReduced(e.target.value)} 
+                  placeholder="例如: 20" 
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

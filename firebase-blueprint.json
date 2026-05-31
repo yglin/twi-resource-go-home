@@ -16,7 +16,9 @@
         "availabilitySlots": { "type": "array", "items": { "$ref": "AvailabilitySlot" } },
         "coordinates": { "type": "object", "description": "GeoPoint as { latitude, longitude }" },
         "geohash": { "type": "string", "description": "Geohash string for searching" },
-        "recycleNotes": { "type": "string" }
+        "recycleNotes": { "type": "string" },
+        "vehicles": { "type": "array", "items": { "type": "string" } },
+        "maxDistance": { "type": "number", "description": "Maximum distance the Ray is willing to travel for resource collection in kilometers" }
       },
       "required": ["displayName", "email", "roles"]
     },
@@ -39,6 +41,7 @@
         "materialCategory": { "type": "string" },
         "productCategory": { "type": "string" },
         "quantity": { "type": "number" },
+        "unit": { "type": "string", "description": "Unit of quantity of recyclable resources" },
         "aiSuggestion": { "type": "string" },
         "imageUrl": { "type": "string" },
         "address": { "type": "string" },
@@ -95,7 +98,9 @@
         "product": { "type": "string" },
         "defaultSuggestion": { "type": "string" },
         "icon": { "type": "string" },
-        "keywords": { "type": "array", "items": { "type": "string" } }
+        "keywords": { "type": "array", "items": { "type": "string" } },
+        "carbonReduced": { "type": "number", "description": "Carbon reduction benefit of recycling 1 unit of this category in grams" },
+        "unit": { "type": "string", "description": "Counting unit of this resource category, e.g. 瓶, 片, 公升" }
       },
       "required": ["material", "product", "defaultSuggestion"]
     },
@@ -111,7 +116,9 @@
         "keywords": { "type": "array", "items": { "type": "string" } },
         "suggestedBy": { "type": "string" },
         "suggestedByEmail": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "carbonReduced": { "type": "number", "description": "Carbon reduction benefit of recycling 1 unit of this category in grams" },
+        "unit": { "type": "string", "description": "Counting unit of this resource category, e.g. 瓶, 片, 公升" }
       },
       "required": ["material", "product", "defaultSuggestion", "suggestedBy", "createdAt"]
     },

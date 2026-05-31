@@ -68,13 +68,13 @@ export default function AvailableRequests() {
 
       if (status === RecordStatus.COLLECTION_CONFIRMED) {
         title = '【已確認收運】勾引魟確認將會前往收取您的資材';
-        content = `勾引魟「${rayName}」已確認將前往收取您的 [${record.productCategory}]（數量: ${record.quantity} 個）。\n\n收約載點：${record.address}\n兩方已建立收運連結，請耐心等候收取並做好前置處理。`;
+        content = `勾引魟「${rayName}」已確認將前往收取您的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）。\n\n收約載點：${record.address}\n兩方已建立收運連結，請耐心等候收取並做好前置處理。`;
       } else if (status === RecordStatus.PICKED_UP) {
         title = '【物資已上車】您的回收資材已成功上車';
-        content = `勾引魟「${rayName}」已到場收取您的 [${record.productCategory}]（數量: ${record.quantity} 個），目前正在載運送往目的地中！`;
+        content = `勾引魟「${rayName}」已到場收取您的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}），目前正在載運送往目的地中！`;
       } else if (status === RecordStatus.COMPLETED) {
         title = '【收運完成】感謝您為地球做出的綠色貢獻！';
-        content = `您的 [${record.productCategory}]（數量: ${record.quantity} 個）已由勾引魟「${rayName}」成功運抵目的地，本筆資材已完成永續回收處理。`;
+        content = `您的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）已由勾引魟「${rayName}」成功運抵目的地，本筆資材已完成永續回收處理。`;
       }
 
       if (title && content) {
@@ -166,7 +166,7 @@ export default function AvailableRequests() {
                        })()}
                       <div className="text-right">
                         <span className="text-xl font-black text-blue-600">{request.quantity}</span>
-                        <span className="text-[10px] text-slate-400 ml-1">個</span>
+                        <span className="text-[10px] text-slate-400 ml-1">{request.unit || '個'}</span>
                       </div>
                     </div>
                     <h3 className="font-bold text-lg text-slate-900">{request.productCategory}</h3>

@@ -13,10 +13,11 @@
   - 在桌機工作區與路由中，使用單一 Reactive Switch Bar 即可動態切換工作視景（`MAKER_FISH` 🐟 ↔ `GOING_HOME` ✈️）。
   - 當任何使用者被系統判定缺少必要地址、Geohash 或收取細項指引，系統配置 Global Router Middleware 強制引導至保護阻斷頁，確保核心媒合引擎的高可用性。
 
-### 2. 半徑 10 公里地理搜尋策略 (Geospatial Matchmaker Heuristics)
+### 2. 彈性最大半徑地理搜尋策略 (Geospatial Matchmaker Heuristics)
 * **設計決策：** 在無關聯資料表的前提下，利用 **前端毫米級高密陣列比對** 與 Firestore Geohash 機制併行，實現高可靠、低運維成本的配送查找。
 * **技術細節：** 
-  - 系統查找在 10 公里直線上，是否具有登記 `'GOING_HOME'` 角色的使用者，且其 `recoveryGuides` 陣列包含對應的回收材質物資大類加細項目。
+  - 系統查找在特定直線距離內，是否具有登記 `'GOING_HOME'` 角色的使用者，且其 `recoveryGuides` 陣列包含對應的回收材質物資大類加細項目。
+  - **最大範圍過濾：** 距離上限依照勾引魟角色自行在個人資料中配置的「最大收運範圍 (公里)」`maxDistance` 為準（若未設定則預設為 10 公里）。當梅克魚產生的回收物資與候選勾引魟座標之間的直線距離 `distKm` 小於或等於 `maxDistance`（或 10 公里）時，系統方判定為有效候選，並於推薦清單中呈現。
   - **Firestore 索引優勢**：我們排除極度繁瑣的多對多分佈式映射寫入，避免當勾引魟使用者修改自己的收取目標時引發資料不同步的情況。基於 Web 客戶端，本方案保障了強一致性與極淨簡明的文件安全性規則。
 
 ### 3. 安全與絕對隱私隔離層 (Security Layer & Boundary Privacies)
@@ -53,11 +54,11 @@
 ### 2. AI 系統 Prompt 設計 (System Prompt Specification)
 ```text
 你是一個專業的環保回收 AI 指南。請辨識這張圖片中的主要物品，並根據其材質與形狀分類。
-請優先比對已知材質主檔，如果圖片中的物品能對應上主檔中的某個(material, product)類別，請務必精確使用該組名稱；
-如果完全不匹配，再自行生成具代表性的全新 (material, category) 名稱。
-請務必返回以下格式的 JSON 資料，且不要包含任何額外的 Markdown 包裝符或對話：
+請優先比對已知材質主檔，如果圖片中的物品能對應上主檔中的某個(material, product)類別，請務必精確使用該組名稱，並帶入其單位；
+如果完全不匹配，再自行生成具代表性的全新 (material, category) 名稱與數量單位 (如「瓶」、「片」、「公升」、「個」等，預設為「個」)。
+請務必返回以下格式 of JSON 資料，且不要包含任何額外的 Markdown 包裝符或對話：
 
-參考已知材質主檔：[Dynamic string of MasterDataResource List]
+參考已知材質主檔：[Dynamic string of MasterDataResource List with units]
 ```
 
 ### 3. Response JSON Schema (具體結構與資料類型)
@@ -77,12 +78,16 @@
       "type": "NUMBER", 
       "description": "AI 估算的物理物件數量" 
     },
+    "unit": { 
+      "type": "STRING", 
+      "description": "各類可回收資源的數量計量單位 (如: 瓶, 片, 公升, 個，預設為 個)" 
+    },
     "suggestion": { 
       "type": "STRING", 
       "description": "對應的前置處理清洗、折疊壓整等詳細指導" 
     }
   },
-  "required": ["material", "category", "quantity", "suggestion"]
+  "required": ["material", "category", "quantity", "unit", "suggestion"]
 }
 ```
 

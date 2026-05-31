@@ -20,7 +20,7 @@ export default function GoingHomeDashboard() {
       {/* Sidebar - Desktop */}
       <aside className="w-20 md:w-64 bg-slate-900 text-white flex flex-col items-center md:items-start p-4 md:p-6 transition-all border-r border-slate-800">
         <div 
-          className={`flex items-center gap-3 font-bold text-xl mb-12 overflow-hidden transition-all ${profile?.roles?.includes('MAKER_FISH' as any) ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}`}
+          className={`flex items-center gap-3 font-bold text-xl mb-12 overflow-visible transition-all ${profile?.roles?.includes('MAKER_FISH' as any) ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}`}
           onClick={() => {
             if (profile?.roles?.includes('MAKER_FISH' as any)) {
               navigate('/maker');
@@ -28,15 +28,15 @@ export default function GoingHomeDashboard() {
           }}
           title={profile?.roles?.includes('MAKER_FISH' as any) ? "切換至梅克魚空間" : ""}
         >
-          <div className="relative flex items-center justify-center">
+          <div className="relative flex items-center justify-center p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 shrink-0">
             <img 
               src={raySpeedIcon} 
               alt="資源勾引魟圖示" 
-              className="w-10 h-10 object-contain shrink-0"
+              className="w-8 h-8 object-contain shrink-0"
               referrerPolicy="no-referrer"
             />
             {profile?.roles?.includes('MAKER_FISH' as any) && (
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-cyan-500 rounded-full border-2 border-slate-900" />
+              <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-cyan-500 rounded-full border-2 border-slate-900" />
             )}
           </div>
           <span className="hidden md:inline whitespace-nowrap">勾引魟工作區</span>

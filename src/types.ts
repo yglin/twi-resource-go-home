@@ -39,6 +39,7 @@ export interface UserProfile {
   geohash?: string;
   recycleNotes?: string;
   vehicles?: string[];
+  maxDistance?: number;
 }
 
 export interface AvailabilitySlot {
@@ -59,6 +60,7 @@ export interface RecoveryRecord {
   materialCategory: string;
   productCategory: string;
   quantity: number;
+  unit?: string;
   aiSuggestion: string;
   imageUrl: string;
   address: string;
@@ -112,6 +114,8 @@ export interface MasterDataResource {
   defaultSuggestion: string;
   icon?: string;
   keywords: string[];
+  carbonReduced?: number;
+  unit?: string;
 }
 
 export interface NewMasterDataResource {
@@ -124,4 +128,6 @@ export interface NewMasterDataResource {
   suggestedBy: string;
   suggestedByEmail: string;
   createdAt: any;
+  carbonReduced?: number;
+  unit?: string;
 }

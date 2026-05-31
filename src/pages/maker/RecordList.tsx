@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { db } from '../../firebase';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { RecoveryRecord, RecordStatus } from '../../types';
+import { RecoveryRecord, RecordStatus, MasterDataResource } from '../../types';
+import { listDocuments } from '../../services/firestoreService';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Package, Clock, MapPin, ChevronRight, Inbox, Check, Copy } from 'lucide-react';
+import { Package, Clock, MapPin, ChevronRight, Inbox, Check, Copy, Leaf } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string, icon: any }> = {
@@ -20,9 +21,17 @@ const STATUS_CONFIG: Record<string, { label: string, color: string, icon: any }>
 export default function RecordList() {
   const { user } = useAuth();
   const [records, setRecords] = useState<RecoveryRecord[]>([]);
+  const [masterData, setMasterData] = useState<MasterDataResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'in_progress' | 'completed' | 'all'>('pending');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Fetch master data resources
+    listDocuments<MasterDataResource>('masterData_resources').then(setMasterData).catch(err => {
+      console.error('Failed to load master data resources:', err);
+    });
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -42,6 +51,18 @@ export default function RecordList() {
   }, [user]);
 
   if (loading) return <div className="flex justify-center py-20">載入中...</div>;
+
+  const getCarbonForRecord = (record: RecoveryRecord) => {
+    const match = masterData.find(
+      m => m.material.trim().toLowerCase() === record.materialCategory.trim().toLowerCase() &&
+           m.product.trim().toLowerCase() === record.productCategory.trim().toLowerCase()
+    );
+    const rate = match?.carbonReduced ?? 0;
+    return record.quantity * rate;
+  };
+
+  const completedRecords = records.filter(r => r.status === RecordStatus.COMPLETED);
+  const totalCarbonReduced = completedRecords.reduce((sum, r) => sum + getCarbonForRecord(r), 0);
 
   const filteredRecords = records.filter(record => {
     switch (activeTab) {
@@ -118,6 +139,44 @@ export default function RecordList() {
         </button>
       </div>
 
+      {activeTab === 'completed' && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-3xl p-6 relative overflow-hidden shadow-sm"
+          id="carbon-offset-summary"
+        >
+          <div className="absolute right-4 bottom-0 opacity-10 pointer-events-none">
+            <Leaf className="w-24 h-24 text-emerald-600 rotate-12" />
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-emerald-500/10 text-emerald-600 rounded-2xl shrink-0 mt-0.5">
+                <Leaf className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-slate-800 text-sm">已完成回收減碳成果 🌿</h4>
+                <p className="text-xs text-slate-500 leading-relaxed max-w-md">
+                  感謝您的參與！您已將可回收資源成功導入再生循環，累計為地球減少了碳排放。
+                </p>
+              </div>
+            </div>
+            <div className="sm:text-right shrink-0 bg-white/40 backdrop-blur-sm sm:bg-transparent p-3 sm:p-0 rounded-2xl border border-slate-200/10 sm:border-0">
+              <span className="block text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">累計減少碳排放量</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl sm:text-3xl font-black text-emerald-600 font-mono tracking-tight" id="total-carbon-value">
+                  {totalCarbonReduced.toLocaleString()}
+                </span>
+                <span className="text-xs font-bold text-emerald-750">公克 (g)</span>
+              </div>
+              <span className="block text-[10px] text-slate-400 mt-0.5">
+                (約相當於 {(totalCarbonReduced / 1000).toFixed(2)} 公斤二氧化碳)
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {records.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white rounded-3xl border border-dashed border-slate-200">
           <Inbox className="w-16 h-16 mb-4 opacity-20" />
@@ -185,12 +244,18 @@ export default function RecordList() {
                           </div>
                           <div className="text-right">
                             <span className="text-2xl font-black text-cyan-600">{record.quantity}</span>
-                            <span className="text-xs text-slate-400 ml-1">個</span>
+                            <span className="text-xs text-slate-400 ml-1">{record.unit || '個'}</span>
                           </div>
                         </div>
                         <p className="text-sm text-slate-600 line-clamp-2 italic mb-4">
                           「{record.aiSuggestion}」
                         </p>
+                        {record.status === RecordStatus.COMPLETED && (
+                          <div className="mb-4 flex items-center gap-1.5 text-emerald-600 bg-emerald-50 rounded-xl px-3 py-1.5 w-fit text-xs font-semibold">
+                            <Leaf className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>達成減碳：{getCarbonForRecord(record).toLocaleString()} 公克 (g)</span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">

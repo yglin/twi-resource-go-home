@@ -74,7 +74,8 @@ service cloud.firestore {
         (incoming().diff(existing()).affectedKeys().hasOnly([
           'roles', 'displayName', 'photoURL', 'phoneNumber', 'address', 
           'timeWindow', 'recoveryGuides', 'coordinates', 'geohash', 
-          'recycleNotes', 'updatedAt', 'availabilitySlots', 'acceptedCategories'
+          'recycleNotes', 'updatedAt', 'availabilitySlots', 'acceptedCategories',
+          'vehicles', 'maxDistance'
         ]) &&
          // Limit roles self-modification: if roles is being changed, ensure it's one of the safe ones
          (!incoming().diff(existing()).affectedKeys().hasAny(['roles']) || 

@@ -207,6 +207,7 @@ export default function ActivePlan() {
           address: r?.address,
           productCategory: r?.productCategory,
           quantity: r?.quantity,
+          unit: r?.unit || '個',
           recycleNotes: r?.recycleNotes || '',
           materialCategory: r?.materialCategory,
           timeWindow: r?.timeWindow || {},
@@ -220,7 +221,8 @@ export default function ActivePlan() {
         body: JSON.stringify({
           departureLocation,
           departureTime: new Date(departureTime).toISOString(),
-          records: selectedRecordsData
+          records: selectedRecordsData,
+          vehicles: profile?.vehicles || []
         })
       });
 
@@ -339,7 +341,7 @@ export default function ActivePlan() {
             receiverId: record.makerFishId,
             type: NotificationType.SYSTEM,
             title: '【物資已上車】您的回收資材已成功收取！',
-            content: `勾引魟已安全抵達並完成確認！您的 [${record.productCategory}]（數量: ${record.quantity} 個）目前已成功堆疊載運上車，正運往目的地處理場！`,
+            content: `勾引魟已安全抵達並完成確認！您的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）目前已成功堆疊載運上車，正運往目的地處理場！`,
             recordId: record.id,
             planId: activePlan.id,
             isRead: false,
@@ -430,7 +432,7 @@ export default function ActivePlan() {
               receiverId: record.makerFishId,
               type: NotificationType.COLLECTION_COMPLETED,
               title: '【綠色任務圓滿圓融】回收物資已運抵環保目的地！',
-              content: `感謝您為永續家園做出的努力！由您交付的 [${record.productCategory}]（數量: ${record.quantity} 個）已安全運抵專業處理中心，順利進入循環工藝的奇蹟之旅！`,
+              content: `感謝您為永續家園做出的努力！由您交付的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）已安全運抵專業處理中心，順利進入循環工藝的奇蹟之旅！`,
               recordId: record.id,
               isRead: false,
               createdAt: new Date()
@@ -505,7 +507,7 @@ export default function ActivePlan() {
                     </div>
                     <div className="bg-blue-700 font-black px-4 py-2 rounded-2xl text-xl shrink-0 text-center">
                       {activeRecord.quantity}
-                      <span className="text-xs font-bold block opacity-80">數量</span>
+                      <span className="text-xs font-bold block opacity-80">{activeRecord.unit || '個'}</span>
                     </div>
                   </div>
 
@@ -719,7 +721,7 @@ export default function ActivePlan() {
                           }`}>
                             {isCompleted ? '已上車' : isSkipped ? '已跳過' : isCurrent ? '即將收取' : '待處理'}
                           </Badge>
-                          <span className="text-[10px] font-bold text-slate-500 font-mono">數量: {item?.quantity || 0}</span>
+                          <span className="text-[10px] font-bold text-slate-500 font-mono">數量: {item?.quantity || 0} {item?.unit || '個'}</span>
                         </div>
                       </div>
                     </div>
@@ -798,7 +800,7 @@ export default function ActivePlan() {
                                 <span className="font-extrabold text-blue-600 block whitespace-nowrap">
                                   {stop.arrivalTime?.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
                                 </span>
-                                <span className="text-slate-400 text-[10px] block whitespace-nowrap">數量: {item?.quantity} 個</span>
+                                <span className="text-slate-400 text-[10px] block whitespace-nowrap">數量: {item?.quantity} {item?.unit || '個'}</span>
                               </div>
                             </div>
                           </div>
@@ -949,7 +951,7 @@ export default function ActivePlan() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-start gap-2">
                                   <h4 className="font-extrabold text-sm text-slate-900 truncate" title={req.productCategory}>{req.productCategory}</h4>
-                                  <span className="font-extrabold text-blue-600 text-sm">x {req.quantity}</span>
+                                  <span className="font-extrabold text-blue-600 text-sm">x {req.quantity} {req.unit || '個'}</span>
                                 </div>
                                 <p className="text-xs text-slate-500 mt-1 truncate" title={req.address}>{req.address}</p>
                                 <div className="flex flex-wrap items-center gap-1.5 mt-2">

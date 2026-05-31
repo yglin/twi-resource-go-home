@@ -40,6 +40,8 @@
 | `timeWindow` | `Record<string, string>`| 否 | `{}` | **可用/交付時段配備** |
 | `recycleNotes` | `string` | 否 | - | **回收通案備註** (梅克魚對放置地點的長期通案聲明，或魟魚指引摘要) |
 | `acceptedCategories` | `string[]` | 否 | `[]` | **勾引魟已選定收取類別** (關聯之 `masterData_resources` ID 陣列) |
+| `vehicles` | `string[]` | 否 | `[]` | **勾引魟擁有的交通工具清單** (選填陣列，包含：`'trolley'`：手推車、`'bicycle'`：自行車、`'motorcycle'`：機車、`'minivan'`：廂型車、`'truck'`：小貨車、`'onfoot'`：步行手提) |
+| `maxDistance` | `number` | 否 | - | **資源勾引魟專用最大收運距離 (公里)** ( floating point number，魟魚願意前往收運的最遠單程範圍，超過此距離梅克魚便無法選擇此魟魚) |
 | `recoveryGuides` | `RecoveryGuide[]` | 否 | `[]` | **勾引魟專屬回收處理指引** (包含各收取產品的特定整理期望，詳解見下方) |
 | `availabilitySlots` | `AvailabilitySlot[]` | 否 | `[]` | **梅克魚開放上門收運時段** (多時段彈性排程，詳解見下方) |
 
@@ -85,6 +87,7 @@ interface AvailabilitySlot {
 | `materialCategory` | `string` | 是 | - | **主要材質分類** (EX: 塑膠、紙類、金屬、玻璃) |
 | `productCategory` | `string` | 是 | - | **細項產品別** (EX: 寶特瓶、瓦楞紙箱、易開罐) |
 | `quantity` | `number` | 是 | `1` | **辨識/調整後數量** (AI 估計並允許梅克魚手動增減) |
+| `unit` | `string` | 否 | `'個'` | **數量計量單位** (例如：瓶、片、公升、個) |
 | `imageUrl` | `string` | 是 | - | **垃圾實物照** (上傳或 Base64 格式快照影像) |
 | `aiSuggestion` | `string` | 是 | - | **AI 產出之分類和前置處理建議** (供梅克魚參考) |
 | `address` | `string` | 是 | - | **特定交付實體地址** (複寫自 UserProfile、支持單次微調) |
@@ -181,6 +184,8 @@ interface PlanStop {
 | `defaultSuggestion` | `string` | 是 | - | **通用基礎前置處理指引** (AI 辨識無法辨認特定魟魚指引時之保底預填建議規則) |
 | `icon` | `string` | 否 | - | **UI 圖標字串** (與 Lucide 圖標動態映射) |
 | `keywords` | `string[]` | 否 | `[]` | **比對關鍵字陣列** (用以協助 Gemini 影像辨識快速分類比對相似近義詞) |
+| `carbonReduced` | `number` | 否 | - | **每單位減碳效益 (公克/單位)** (回收1個計量單位該類別的可回收資源的減碳效益) |
+| `unit` | `string` | 否 | `'個'` | **數量計量單位** (自定義各類型可回收資源之數量單位，例如紙箱用「個」、寶特瓶用「瓶」、廚餘用「公升」、口罩用「片」等) |
 
 *註：當資源梅克魚利用 AI 相機辨識出新分類，而該分類在目前主檔中不存在時，應用系統將自動學習並在 `masterData_resources` 中建立新的一筆防呆通用主檔。*
 

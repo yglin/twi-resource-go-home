@@ -64,6 +64,7 @@ export default function ProfileSetup() {
   const [acceptedCategories, setAcceptedCategories] = useState<string[]>(profile?.acceptedCategories || []);
   const [recoveryGuides, setRecoveryGuides] = useState<RecoveryGuide[]>(profile?.recoveryGuides || []);
   const [vehicles, setVehicles] = useState<string[]>(profile?.vehicles || []);
+  const [maxDistance, setMaxDistance] = useState(profile?.maxDistance?.toString() || '');
 
   const toggleVehicle = (vehicleId: string) => {
     setVehicles(prev => 
@@ -215,6 +216,13 @@ export default function ProfileSetup() {
         updates.acceptedCategories = acceptedCategories;
         updates.recoveryGuides = recoveryGuides;
         updates.vehicles = vehicles;
+        const distanceVal = maxDistance === '' ? null : parseFloat(maxDistance);
+        if (distanceVal !== null && (isNaN(distanceVal) || distanceVal < 0)) {
+          toast.error('最大收運距離必須為正數');
+          setLoading(false);
+          return;
+        }
+        updates.maxDistance = distanceVal;
         // Keep legacy field for compatibility if needed, but preferred is recoveryGuides
         updates.recycleNotes = recoveryGuides.map(g => `[${g.product}] ${g.instructions}`).join('\n');
       }
@@ -623,6 +631,30 @@ export default function ProfileSetup() {
                             <Input id="field-going-home-lng" value={lng} onChange={e => setLng(e.target.value)} className="bg-white" />
                           </div>
                         </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50/50 rounded-3xl p-6 border border-slate-100 space-y-4">
+                      <div className="flex items-center gap-2 text-blue-600 border-b border-blue-100 pb-2">
+                        <span className="text-lg">🗺️</span>
+                        <h3 className="font-bold">最大收運範圍 (公里)</h3>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Input 
+                            id="field-going-home-max-distance"
+                            type="number" 
+                            step="0.1" 
+                            value={maxDistance} 
+                            onChange={e => setMaxDistance(e.target.value)} 
+                            placeholder="無限制 / 例如: 10" 
+                            className="max-w-[200px] bg-white"
+                          />
+                          <span className="text-sm font-semibold text-slate-500">公里 (km)</span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          設定您願意前往收裝、載運回收物資的最遠單程距離。超出此半徑的梅克魚便不會在推薦列表中向您提報。
+                        </p>
                       </div>
                     </div>
 
