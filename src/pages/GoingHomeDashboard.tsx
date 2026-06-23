@@ -2,7 +2,7 @@ import React from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { auth } from '../firebase';
-import { Navigation, Map, List, Bell, LogOut, PackageSearch, Route as RouteIcon, Shield } from 'lucide-react';
+import { Navigation, Map, List, Bell, LogOut, PackageSearch, Route as RouteIcon, Shield, Coins, FileText } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import raySpeedIcon from '@/assets/images/ray_speed_icon_v2_1779524761425.png';
 
@@ -15,12 +15,27 @@ export default function GoingHomeDashboard() {
   const { profile, isAdmin } = useAuth();
   const navigate = useNavigate();
 
+  const isGoingHome = profile?.roles?.includes('GOING_HOME');
+  const isRecycler = profile?.roles?.includes('RECYCLER');
+  const hasBoth = isGoingHome && isRecycler;
+
+  const workspaceTitle = hasBoth ? '收運與收購空間' : (isRecycler ? '瑞莎魺工作區' : '勾引魟工作區');
+  const roleLabel = hasBoth ? '勾引魟 & 瑞莎魺' : (isRecycler ? '資源瑞莎魺' : '資源勾引魟');
+  
+  // Choose theme colors: recycler gets amber, going-home gets blue
+  const themeColorClass = (isRecycler && !isGoingHome) 
+    ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20' 
+    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20';
+
+  const iconBgClass = (isRecycler && !isGoingHome) ? 'bg-amber-500/10 border-amber-500/20' : 'bg-blue-500/10 border-blue-500/20';
+  const roleTextMutedClass = (isRecycler && !isGoingHome) ? 'text-amber-500 font-medium' : 'text-slate-500';
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Sidebar - Desktop */}
-      <aside className="w-20 md:w-64 bg-slate-900 text-white flex flex-col items-center md:items-start p-4 md:p-6 transition-all border-r border-slate-800">
+      <aside className="w-20 md:w-64 bg-slate-900 text-white flex flex-col items-center md:items-start p-4 md:p-6 transition-all border-r border-slate-800 shrink-0 overflow-y-auto min-h-0 custom-sidebar">
         <div 
-          className={`flex items-center gap-3 font-bold text-xl mb-12 overflow-visible transition-all ${profile?.roles?.includes('MAKER_FISH' as any) ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}`}
+          className={`flex items-center gap-3 font-bold text-xl mb-6 md:mb-8 overflow-visible transition-all ${profile?.roles?.includes('MAKER_FISH' as any) ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}`}
           onClick={() => {
             if (profile?.roles?.includes('MAKER_FISH' as any)) {
               navigate('/maker');
@@ -28,38 +43,52 @@ export default function GoingHomeDashboard() {
           }}
           title={profile?.roles?.includes('MAKER_FISH' as any) ? "切換至梅克魚空間" : ""}
         >
-          <div className="relative flex items-center justify-center p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 shrink-0">
-            <img 
-              src={raySpeedIcon} 
-              alt="資源勾引魟圖示" 
-              className="w-8 h-8 object-contain shrink-0"
-              referrerPolicy="no-referrer"
-            />
+          <div className={`relative flex items-center justify-center p-2 rounded-xl border shrink-0 ${iconBgClass}`}>
+            {isRecycler && !isGoingHome ? (
+              <Coins className="w-8 h-8 text-amber-500 shrink-0" />
+            ) : (
+              <img 
+                src={raySpeedIcon} 
+                alt="資源勾引魟圖示" 
+                className="w-8 h-8 object-contain shrink-0"
+                referrerPolicy="no-referrer"
+              />
+            )}
             {profile?.roles?.includes('MAKER_FISH' as any) && (
               <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-cyan-500 rounded-full border-2 border-slate-900" />
             )}
           </div>
-          <span className="hidden md:inline whitespace-nowrap">勾引魟工作區</span>
+          <span className="hidden md:inline whitespace-nowrap text-base">{workspaceTitle}</span>
         </div>
 
-        <nav className="flex-1 space-y-4 w-full">
+        <nav className="flex-1 space-y-2 w-full">
           <NavItem 
             icon={<Map />} 
-            label="收運地圖" 
+            label={isRecycler && !isGoingHome ? "收購地圖" : "收運地圖"} 
             onClick={() => navigate('/going-home')} 
             active={window.location.pathname === '/going-home'} 
+            activeThemeClass={themeColorClass}
           />
           <NavItem 
             icon={<RouteIcon />} 
             label="我的計畫" 
             onClick={() => navigate('/going-home/plan')} 
             active={window.location.pathname.startsWith('/going-home/plan')}
+            activeThemeClass={themeColorClass}
           />
           <NavItem 
             icon={<PackageSearch />} 
-            label="收運請求" 
+            label={isRecycler && !isGoingHome ? "收購請求" : "收運請求"} 
             onClick={() => navigate('/going-home/requests')} 
             active={window.location.pathname.startsWith('/going-home/requests')}
+            activeThemeClass={themeColorClass}
+          />
+          <NavItem 
+            icon={<FileText />} 
+            label="定期契約" 
+            onClick={() => navigate('/recycleContract')} 
+            active={window.location.pathname.startsWith('/recycleContract')}
+            activeThemeClass={themeColorClass}
           />
           {isAdmin && (
             <NavItem 
@@ -67,11 +96,12 @@ export default function GoingHomeDashboard() {
               label="管理後台" 
               onClick={() => navigate('/admin')} 
               active={false}
+              activeThemeClass={themeColorClass}
             />
           )}
         </nav>
 
-        <div className="w-full pt-6 border-t border-slate-800 space-y-4">
+        <div className="w-full pt-4 border-t border-slate-800 space-y-2 mt-4">
           <div className="flex items-center gap-3 px-2 overflow-hidden cursor-pointer hover:bg-slate-800/50 rounded-xl py-1 transition-colors" onClick={() => navigate('/setup')}>
             <Avatar className="h-10 w-10 ring-2 ring-blue-500/20">
               <AvatarImage src={profile?.photoURL} />
@@ -79,12 +109,12 @@ export default function GoingHomeDashboard() {
             </Avatar>
             <div className="hidden md:block">
               <p className="text-xs font-bold truncate">{profile?.displayName}</p>
-              <p className="text-[10px] text-slate-500 truncate">資源勾引魟</p>
+              <p className={`text-[10px] truncate ${roleTextMutedClass}`}>{roleLabel}</p>
             </div>
           </div>
           <button 
             onClick={() => auth.signOut()}
-            className="w-full flex items-center justify-center md:justify-start gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors"
+            className="w-full flex items-center justify-center md:justify-start gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors"
           >
             <LogOut className="w-5 h-5" />
             <span className="hidden md:inline">登出</span>
@@ -105,11 +135,11 @@ export default function GoingHomeDashboard() {
   );
 }
 
-function NavItem({ icon, label, onClick, active }: any) {
+function NavItem({ icon, label, onClick, active, activeThemeClass }: any) {
   return (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center justify-center md:justify-start gap-4 px-4 py-3 rounded-2xl transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+      className={`w-full flex items-center justify-center md:justify-start gap-4 px-4 py-3 rounded-2xl transition-all ${active ? activeThemeClass : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
     >
       {React.cloneElement(icon, { className: 'w-6 h-6' })}
       <span className="hidden md:inline font-medium">{label}</span>

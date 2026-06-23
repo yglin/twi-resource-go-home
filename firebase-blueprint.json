@@ -153,6 +153,82 @@
         "userEmail": { "type": "string" }
       },
       "required": ["level", "message", "timestamp"]
+    },
+    "RecycleContract": {
+      "title": "Recycle Contract",
+      "description": "Recycling contract between a Maker Fish, Going Home Ray, and Recycler",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending Signatures", "Active", "Rejected", "Suspended"] },
+        "templateRecord": { 
+          "type": "object",
+          "properties": {
+            "materialCategory": { "type": "string" },
+            "productCategory": { "type": "string" },
+            "quantity": { "type": "number" },
+            "unit": { "type": "string" }
+          },
+          "required": ["materialCategory", "productCategory", "quantity", "unit"]
+        },
+        "schedule": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+            "daysOfWeek": { "type": "array", "items": { "type": "integer" } },
+            "dayOfMonth": { "type": "integer" },
+            "time": { "type": "string" },
+            "scheduleText": { "type": "string" }
+          },
+          "required": ["type", "time", "scheduleText"]
+        },
+        "makerFishId": { "type": "string" },
+        "goingHomeId": { "type": "string" },
+        "recyclerId": { "type": "string" },
+        "signatures": {
+          "type": "object",
+          "properties": {
+            "makerFish": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+            "goingHome": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+            "recycler": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] }
+          },
+          "required": ["makerFish", "goingHome", "recycler"]
+        },
+        "rejectionReason": { "type": "string" },
+        "sourceRecordId": { "type": "string" },
+        "lastGeneratedAt": { "type": "string", "format": "date-time" },
+        "nextRunAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["creatorId", "status", "templateRecord", "schedule", "makerFishId", "goingHomeId", "recyclerId", "signatures", "createdAt", "updatedAt"]
+    },
+    "ContractHistory": {
+      "title": "Contract History",
+      "description": "Audit log for changes made to a contract",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "operatorId": { "type": "string" },
+        "operatorName": { "type": "string" },
+        "operatorRole": { "type": "string" },
+        "action": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["timestamp", "operatorId", "operatorName", "operatorRole", "action"]
+    },
+    "ContractMessage": {
+      "title": "Contract Message",
+      "description": "Communication messages between parties of a contract",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "senderName", "senderRole", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -187,6 +263,18 @@
     "systemLogs/{logId}": {
       "schema": "SystemLog",
       "description": "System-wide diagnostic and event logs"
+    },
+    "recycleContracts/{contractId}": {
+      "schema": "RecycleContract",
+      "description": "Recycling contracts between parties"
+    },
+    "recycleContracts/{contractId}/history/{historyId}": {
+      "schema": "ContractHistory",
+      "description": "Auditing trails of a contract"
+    },
+    "recycleContracts/{contractId}/messages/{messageId}": {
+      "schema": "ContractMessage",
+      "description": "Discussion and chat logs of a contract"
     }
   }
 }

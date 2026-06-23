@@ -79,7 +79,9 @@ service cloud.firestore {
         ]) &&
          // Limit roles self-modification: if roles is being changed, ensure it's one of the safe ones
          (!incoming().diff(existing()).affectedKeys().hasAny(['roles']) || 
-          (incoming().roles.size() > 0 && incoming().roles.hasAny(['MAKER_FISH', 'GOING_HOME'])))) ||
+          (incoming().roles.size() > 0 && 
+           incoming().roles.hasAny(['MAKER_FISH', 'GOING_HOME', 'RECYCLER']) && 
+           !incoming().roles.hasAny(['SYSTEM_ADMIN'])))) ||
         // Action: Admin update
         isAdmin()
       );
@@ -96,7 +98,7 @@ service cloud.firestore {
                data.quantity is number && data.quantity > 0 &&
                data.imageUrl is string && data.address is string &&
                data.status in ['JUST_BORN', 'WAITING_FOR_COLLECTION', 'COLLECTION_CONFIRMED', 'PICKED_UP', 'COMPLETED'] &&
-               data.makerFishId == request.auth.uid;
+               (data.makerFishId == request.auth.uid || data.selectedGoingHomeId == request.auth.uid);
       }
 
       allow get: if isSignedIn() && (
@@ -213,6 +215,92 @@ service cloud.firestore {
                     incoming().createdAt == request.time;
       allow update: if isAdmin();
       allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // Recycle Contracts
+    // ---------------------------------------------------------
+    match /recycleContracts/{contractId} {
+      function isValidContract(data) {
+        return data.creatorId is string &&
+               data.status in ['Pending Signatures', 'Active', 'Rejected', 'Suspended'] &&
+               data.makerFishId is string &&
+               data.goingHomeId is string &&
+               data.recyclerId is string &&
+               data.templateRecord is map &&
+               data.templateRecord.materialCategory is string &&
+               data.templateRecord.productCategory is string &&
+               data.templateRecord.quantity is number &&
+               data.templateRecord.quantity > 0 &&
+               data.templateRecord.unit is string &&
+               data.schedule is map &&
+               data.schedule.type in ['daily', 'weekly', 'monthly'] &&
+               data.schedule.time is string &&
+               data.schedule.scheduleText is string &&
+               data.signatures is map &&
+               data.signatures.makerFish in ['Pending', 'Approved', 'Rejected'] &&
+               data.signatures.goingHome in ['Pending', 'Approved', 'Rejected'] &&
+               data.signatures.recycler in ['Pending', 'Approved', 'Rejected'];
+      }
+
+      function isContractParticipant() {
+        return isSignedIn() && (
+          resource.data.makerFishId == request.auth.uid || 
+          resource.data.goingHomeId == request.auth.uid || 
+          resource.data.recyclerId == request.auth.uid
+        );
+      }
+
+      allow get, list: if isSignedIn() && (isContractParticipant() || isAdmin());
+      
+      allow create: if isSignedIn() && hasRole('GOING_HOME') && 
+                       incoming().creatorId == request.auth.uid &&
+                       incoming().goingHomeId == request.auth.uid &&
+                       isValidContract(incoming()) &&
+                       incoming().createdAt == request.time &&
+                       incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          isContractParticipant() && isValidContract(incoming()) &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (existing().goingHomeId == request.auth.uid) || 
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'signatures', 'rejectionReason', 'updatedAt', 'lastGeneratedAt', 'nextRunAt']))
+          )
+        )
+      );
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().goingHomeId == request.auth.uid && existing().status == 'Pending Signatures');
+
+      // History Sub-collection
+      match /history/{historyId} {
+        allow read: if isSignedIn() && (get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.makerFishId == request.auth.uid || 
+                                        get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.goingHomeId == request.auth.uid || 
+                                        get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.recyclerId == request.auth.uid || 
+                                        isAdmin());
+        allow create: if isSignedIn() && (get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.makerFishId == request.auth.uid || 
+                                         get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.goingHomeId == request.auth.uid || 
+                                         get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.recyclerId == request.auth.uid || 
+                                         isAdmin()) &&
+                         incoming().timestamp == request.time;
+        allow update, delete: if isAdmin();
+      }
+
+      // Messages Sub-collection
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.makerFishId == request.auth.uid || 
+                                        get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.goingHomeId == request.auth.uid || 
+                                        get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.recyclerId == request.auth.uid || 
+                                        isAdmin());
+        allow create: if isSignedIn() && (get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.makerFishId == request.auth.uid || 
+                                         get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.goingHomeId == request.auth.uid || 
+                                         get(/databases/$(database)/documents/recycleContracts/$(contractId)).data.recyclerId == request.auth.uid || 
+                                         isAdmin()) &&
+                         incoming().createdAt == request.time;
+        allow update, delete: if isAdmin();
+      }
     }
 
     // ---------------------------------------------------------

@@ -350,9 +350,9 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col p-6 shrink-0">
-        <div className="flex items-center gap-2 font-bold text-xl mb-12">
+      {"/* Sidebar */"}
+      <aside className="w-64 bg-slate-900 text-white flex flex-col p-6 shrink-0 overflow-y-auto min-h-0 custom-sidebar">
+        <div className="flex items-center gap-2 font-bold text-xl mb-8 shrink-0">
           <Settings className="w-6 h-6 text-cyan-400" />
           <span>管理後台</span>
         </div>
@@ -408,7 +408,7 @@ export default function AdminDashboard() {
           type="button"
           id="btn-nav-logout"
           onClick={() => auth.signOut()}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer text-left mt-auto"
+          className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer text-left mt-8 shrink-0"
         >
           <LogOut className="w-5 h-5" />
           <span>登出</span>

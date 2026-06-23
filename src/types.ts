@@ -1,6 +1,6 @@
 import { Timestamp, GeoPoint } from 'firebase/firestore';
 
-export type UserRole = 'MAKER_FISH' | 'GOING_HOME' | 'SYSTEM_ADMIN';
+export type UserRole = 'MAKER_FISH' | 'GOING_HOME' | 'SYSTEM_ADMIN' | 'RECYCLER';
 
 export enum RecordStatus {
   JUST_BORN = 'JUST_BORN',
@@ -53,6 +53,8 @@ export interface RecoveryGuide {
   material: string;
   product: string;
   instructions: string;
+  price?: number;
+  unit?: string;
 }
 
 export interface RecoveryRecord {
@@ -86,13 +88,21 @@ export interface GoingHomePlan {
   routePolyline?: string;
   status: PlanStatus;
   createdAt: Timestamp;
+  totalDistance?: number;
+  totalLoadWeightedDistance?: number;
+  totalRevenue?: number;
 }
 
 export interface PlanStop {
+  id: string; // station unique identifier (recordId if PICKUP, recyclerId if DELIVERY)
+  type: 'PICKUP' | 'DELIVERY';
+  recordId?: string; // only if PICKUP
+  recyclerId?: string; // only if DELIVERY
   arrivalTime: Timestamp;
-  recordId: string;
   status: 'PENDING' | 'ARRIVED' | 'SKIPPED';
   sortingOrder: number;
+  deliveredRecordIds?: string[]; // only if DELIVERY
+  revenueEarned?: number; // only if DELIVERY
 }
 
 export interface AppNotification {
@@ -116,6 +126,7 @@ export interface MasterDataResource {
   keywords: string[];
   carbonReduced?: number;
   unit?: string;
+  estimatedWeight?: number;
 }
 
 export interface NewMasterDataResource {
@@ -130,4 +141,87 @@ export interface NewMasterDataResource {
   createdAt: any;
   carbonReduced?: number;
   unit?: string;
+  estimatedWeight?: number;
 }
+
+export interface GANode {
+  id: string;
+  type: 'START' | 'PICKUP' | 'DELIVERY';
+  coordinates: { latitude: number; longitude: number };
+  displayName: string;
+  address: string;
+  
+  // For PICKUP
+  materialCategory?: string;
+  productCategory?: string;
+  quantity?: number;
+  unit?: string;
+  estimatedWeight?: number;
+  
+  // For DELIVERY
+  acceptedCategories?: string[];
+  prices?: Record<string, number>;
+  deliveredRecordIds?: string[];
+  revenueEarned?: number;
+}
+
+export type ContractStatus = 'Pending Signatures' | 'Active' | 'Rejected' | 'Suspended';
+
+export interface ContractTemplateRecord {
+  materialCategory: string;
+  productCategory: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface ContractSchedule {
+  type: 'daily' | 'weekly' | 'monthly';
+  daysOfWeek?: number[];
+  dayOfMonth?: number;
+  time: string;
+  scheduleText: string;
+}
+
+export interface ContractSignatures {
+  makerFish: 'Pending' | 'Approved' | 'Rejected';
+  goingHome: 'Pending' | 'Approved' | 'Rejected';
+  recycler: 'Pending' | 'Approved' | 'Rejected';
+}
+
+export interface RecycleContract {
+  id: string;
+  creatorId: string;
+  status: ContractStatus;
+  templateRecord: ContractTemplateRecord;
+  schedule: ContractSchedule;
+  makerFishId: string;
+  goingHomeId: string;
+  recyclerId: string;
+  signatures: ContractSignatures;
+  rejectionReason?: string;
+  sourceRecordId?: string;
+  lastGeneratedAt?: Timestamp;
+  nextRunAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface ContractHistory {
+  id: string;
+  timestamp: Timestamp;
+  operatorId: string;
+  operatorName: string;
+  operatorRole: string; // 'MAKER_FISH' | 'GOING_HOME' | 'RECYCLER' | 'SYSTEM'
+  action: 'CREATE_CONTRACT' | 'SIGN_APPROVE' | 'SIGN_REJECT' | 'SUSPEND' | 'REACTIVATE' | 'RESUBMIT';
+  note?: string;
+}
+
+export interface ContractMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  content: string;
+  createdAt: Timestamp;
+}
+

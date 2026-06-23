@@ -19,7 +19,7 @@ import {
   DialogDescription, 
   DialogFooter 
 } from '@/components/ui/dialog';
-import { ArrowLeft, MapPin, Clock, Star, Navigation, CheckCircle2, Package, Loader2, Bell, X, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, Star, Navigation, CheckCircle2, Package, Loader2, Bell, X, AlertTriangle, Coins } from 'lucide-react';
 import { toast } from 'sonner';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 
@@ -32,7 +32,7 @@ const isValidCoordinate = (coords: any): coords is { latitude: number; longitude
 export default function RecordDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [record, setRecord] = useState<RecoveryRecord | null>(null);
   const [nearbyRays, setNearbyRays] = useState<UserProfile[]>([]);
   const [loadingBase, setLoadingBase] = useState(true);
@@ -100,12 +100,14 @@ export default function RecordDetails() {
   const findNearbyRays = async (rec: RecoveryRecord) => {
     setLoadingRays(true);
     try {
-      // For demo purposes, we search all GOING_HOME users. 
+      // For demo purposes, we search all users and filter by GOING_HOME or RECYCLER.
       // In a real app with many users, use geohash bounds queries.
-      const q = query(collection(db, 'users'), where('roles', 'array-contains', 'GOING_HOME'));
+      const q = query(collection(db, 'users'));
       const querySnapshot = await getDocs(q);
       
-      const rays = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+      const rays = querySnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as UserProfile))
+        .filter(u => u.roles && (u.roles.includes('GOING_HOME' as any) || u.roles.includes('RECYCLER' as any)));
       
       // Filter by distance (using Ray's maxDistance, defaulting to 10km) and category compatibility (RecoveryGuides Filter)
       const filtered = rays.filter(ray => {
@@ -278,6 +280,18 @@ export default function RecordDetails() {
                   <span>建立於 {record.createdAt.toDate().toLocaleString()}</span>
                 </div>
               </div>
+
+              {profile?.roles?.includes('GOING_HOME') && record.status === RecordStatus.COMPLETED && (
+                <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end">
+                  <Button 
+                    onClick={() => navigate(`/newRecycleContract?sourceId=${record.id}`)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold px-6 py-2.5 shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-2"
+                  >
+                    <Coins className="w-5 h-5" />
+                    立馬將此單轉為長期定期約
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -422,6 +436,13 @@ export default function RecordDetails() {
                           )
                         : null;
 
+                      const isRecycler = ray.roles?.includes('RECYCLER');
+                      const matchedGuide = ray.recoveryGuides?.find(g => 
+                        g.material === record?.materialCategory && 
+                        g.product === record?.productCategory
+                      );
+                      const hasPrice = matchedGuide?.price !== undefined && matchedGuide?.price !== null;
+
                       return (
                         <div key={ray.id} className="p-4 rounded-2xl border border-slate-100 hover:border-cyan-200 hover:bg-cyan-50 transition-all cursor-pointer group" onClick={() => setConfirmingRay(ray)}>
                           <div className="flex items-center gap-3 mb-3">
@@ -430,7 +451,14 @@ export default function RecordDetails() {
                               <AvatarFallback>{ray.displayName?.charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div>
-                              <p className="text-sm font-bold truncate">{ray.displayName}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-bold truncate">{ray.displayName}</span>
+                                {isRecycler && (
+                                  <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 text-[10px] scale-90 border-none font-bold py-0 h-4.5">
+                                    有償收購
+                                  </Badge>
+                                )}
+                              </div>
                               <div className="flex items-center gap-1">
                                 <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
                                 <span className="text-[10px] text-slate-500 font-bold">4.9 (127+)</span>
@@ -443,10 +471,16 @@ export default function RecordDetails() {
                                   <span>最大範圍：{ray.maxDistance !== undefined && ray.maxDistance !== null ? `${ray.maxDistance} km` : '10 km'}</span>
                                 </p>
                               )}
+                              {hasPrice && (
+                                <p className="text-xs text-amber-600 font-bold mt-1.5 flex items-center gap-1 bg-amber-50 rounded-lg px-2 py-0.5 border border-amber-100/50 w-fit">
+                                  <Coins className="w-3.5 h-3.5" />
+                                  <span>收購價格：{matchedGuide.price} 元 / {record?.unit || '單位'}</span>
+                                </p>
+                              )}
                             </div>
                           </div>
-                          <Button className="w-full rounded-full h-8 text-xs bg-slate-900 group-hover:bg-cyan-600">
-                            選擇收運
+                          <Button className={`w-full rounded-full h-8 text-xs ${isRecycler ? 'bg-amber-500 hover:bg-amber-600 group-hover:bg-amber-600' : 'bg-slate-900 group-hover:bg-cyan-600'}`}>
+                            {isRecycler ? '選擇收購變現' : '選擇收運'}
                           </Button>
                         </div>
                       );
@@ -501,7 +535,7 @@ export default function RecordDetails() {
               確認資材前置處理建議
             </DialogTitle>
             <DialogDescription className="text-slate-500 font-sans text-sm">
-              在委託勾引魟「{confirmingRay?.displayName}」收運前，請先確認您已完成其指定的專屬處理指引。
+              在委託「{confirmingRay?.displayName}」進行回收前，請先確認您已閱讀其指定的指引與條款。
             </DialogDescription>
           </DialogHeader>
 
@@ -513,7 +547,7 @@ export default function RecordDetails() {
                   <AvatarFallback>{confirmingRay?.displayName?.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-xs font-bold text-slate-700">{confirmingRay?.displayName} 的專屬處理要求</p>
+                  <p className="text-xs font-bold text-slate-700">{confirmingRay?.displayName} 的專屬回收規劃</p>
                   <p className="text-[10px] text-slate-400 font-sans font-bold">{record?.materialCategory} ➔ {record?.productCategory}</p>
                 </div>
               </div>
@@ -524,14 +558,25 @@ export default function RecordDetails() {
                   g.material === record?.materialCategory && 
                   g.product === record?.productCategory
                 );
-                return guide && guide.instructions ? (
-                  <p className="text-sm text-cyan-800 leading-relaxed font-semibold font-sans italic bg-white p-3 rounded-xl border border-slate-100/50 break-all">
-                    「{guide.instructions}」
-                  </p>
-                ) : (
-                  <p className="text-sm text-slate-500 leading-relaxed italic bg-white p-3 rounded-xl border border-slate-100/50">
-                    此勾引魟未為此分類填寫特定處理指引。
-                  </p>
+                const hasPrice = guide?.price !== undefined && guide?.price !== null;
+                return (
+                  <div className="space-y-2">
+                    {hasPrice && (
+                      <div className="flex items-center gap-2 p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 font-bold text-xs animate-in fade-in duration-300">
+                        <Coins className="w-4 h-4 text-amber-500 shrink-0" />
+                        <span>收購價格：{guide.price} 元 / {record?.unit || '單位'}</span>
+                      </div>
+                    )}
+                    {guide && guide.instructions ? (
+                      <p className="text-sm text-cyan-800 leading-relaxed font-semibold font-sans italic bg-white p-3 rounded-xl border border-slate-100/50 break-all">
+                        說明：「{guide.instructions}」
+                      </p>
+                    ) : (
+                      <p className="text-sm text-slate-500 leading-relaxed italic bg-white p-3 rounded-xl border border-slate-100/50">
+                        此物資之回收未包含特定處理指引。
+                      </p>
+                    )}
+                  </div>
                 );
               })()}
             </div>
@@ -541,7 +586,7 @@ export default function RecordDetails() {
               <div className="space-y-1">
                 <p className="text-xs font-bold text-amber-900 leading-none">確認聲明</p>
                 <p className="text-[11px] text-amber-700 leading-relaxed font-sans font-bold">
-                  請確認您已經完成上述的前置處理建議，否則勾引魟抵達現場時可能將不予收運。
+                  請確認您已經完成上述之前置處理建議。若與登載不符、或未依約整理，人員現場可能不予收運/收購。
                 </p>
               </div>
             </div>

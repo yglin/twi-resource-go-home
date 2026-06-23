@@ -18,6 +18,12 @@ import Unauthorized from './pages/Unauthorized';
 import MakerScenarios from './pages/MakerScenarios';
 import RayScenarios from './pages/RayScenarios';
 
+// Recycle Contract Pages
+import ContractDashboard from './pages/contract/ContractDashboard';
+import NewRecycleContract from './pages/contract/NewRecycleContract';
+import ContractDetails from './pages/contract/ContractDetails';
+import { evaluateAndGenerateScheduledRecords } from './services/contractService';
+
 const AuthContext = React.createContext<{
   user: User | null;
   profile: UserProfile | null;
@@ -65,7 +71,7 @@ const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?
     if (profile.roles.includes('MAKER_FISH')) {
       if (!profile.address || !profile.phoneNumber || !profile.coordinates) return true;
     }
-    if (profile.roles.includes('GOING_HOME')) {
+    if (profile.roles.includes('GOING_HOME') || profile.roles.includes('RECYCLER')) {
       const hasLocation = profile.address && profile.phoneNumber && profile.coordinates;
       const hasCategories = profile.acceptedCategories && profile.acceptedCategories.length > 0;
       const hasGuides = profile.recoveryGuides && profile.recoveryGuides.length === profile.acceptedCategories?.length;
@@ -135,6 +141,8 @@ export default function App() {
         setUser(u);
         if (u) {
           await fetchProfile(u.uid, u.email, u);
+          // Run background scheduled evaluations silently
+          evaluateAndGenerateScheduledRecords().catch(err => console.error("Scheduler Error:", err));
         } else {
           setProfile(null);
           setIsAdmin(false);
@@ -176,7 +184,7 @@ export default function App() {
             } />
 
             <Route path="/going-home/*" element={
-              <ProtectedRoute roles={['GOING_HOME']}>
+              <ProtectedRoute roles={['GOING_HOME', 'RECYCLER']}>
                 <GoingHomeDashboard />
               </ProtectedRoute>
             } />
@@ -184,6 +192,23 @@ export default function App() {
             <Route path="/admin/*" element={
               <ProtectedRoute roles={['SYSTEM_ADMIN']}>
                 <AdminDashboard />
+              </ProtectedRoute>
+            } />
+
+            {/* Recycle Contract Routes */}
+            <Route path="/recycleContract" element={
+              <ProtectedRoute>
+                <ContractDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/newRecycleContract" element={
+              <ProtectedRoute roles={['GOING_HOME']}>
+                <NewRecycleContract />
+              </ProtectedRoute>
+            } />
+            <Route path="/recycleContract/:id" element={
+              <ProtectedRoute>
+                <ContractDetails />
               </ProtectedRoute>
             } />
 

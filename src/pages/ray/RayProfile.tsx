@@ -5,8 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { MapPin, Save, Navigation } from 'lucide-react';
+import { MapPin, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { GeoPoint } from 'firebase/firestore';
 
@@ -22,6 +21,9 @@ const VEHICLE_OPTIONS = [
 export default function RayProfile() {
   const { user, profile, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(false);
+
+  const isGoingHome = profile?.roles?.includes('GOING_HOME');
+  const isRecycler = profile?.roles?.includes('RECYCLER');
   
   const [displayName, setDisplayName] = useState(profile?.displayName || '');
   const [address, setAddress] = useState(profile?.address || '');
@@ -43,7 +45,7 @@ export default function RayProfile() {
     if (!user) return;
     const distanceVal = maxDistance === '' ? null : parseFloat(maxDistance);
     if (distanceVal !== null && (isNaN(distanceVal) || distanceVal < 0)) {
-      toast.error('最大收運距離必須為正數');
+      toast.error(isRecycler && !isGoingHome ? '最大收購範圍必須為正數' : '最大收運距離必須為正數');
       return;
     }
 
@@ -71,20 +73,33 @@ export default function RayProfile() {
       setLat(pos.coords.latitude.toString());
       setLng(pos.coords.longitude.toString());
       toast.info('已取得目前位置座標');
-    });
+    }, (err) => {
+      console.error(err);
+      toast.error('無法定位，請手動輸入座標');
+    }, { enableHighAccuracy: true });
   };
+
+  const themeColorClass = (isRecycler && !isGoingHome) ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700';
+  const borderActiveClass = (isRecycler && !isGoingHome) ? 'border-amber-600 bg-amber-50/50 text-amber-900 shadow-sm' : 'border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm';
+  const textThemeClass = (isRecycler && !isGoingHome) ? 'text-amber-500 font-bold' : 'text-blue-600 font-bold';
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
       <header className="mb-8">
-        <h2 className="text-3xl font-bold text-slate-900">服務設定</h2>
-        <p className="text-slate-500">設定您的收運範圍與聯絡資訊</p>
+        <h2 className="text-3xl font-bold text-slate-900">
+          {isRecycler && !isGoingHome ? '收購設定' : '服務設定'}
+        </h2>
+        <p className="text-slate-500">
+          {isRecycler && !isGoingHome ? '設定您的收購中心與聯絡資訊' : '設定您的收運範圍與聯絡資訊'}
+        </p>
       </header>
 
       <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden">
         <CardHeader className="bg-slate-900 text-white p-8">
           <CardTitle>個人經營資訊</CardTitle>
-          <CardDescription className="text-slate-400">這些資訊將公開給梅克魚作為挑選參考</CardDescription>
+          <CardDescription className="text-slate-400">
+            {isRecycler && !isGoingHome ? '這些資訊將公開給梅克魚做為變現評估與挑選參考' : '這些資訊將公開給梅克魚做為收運服務挑選參考'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-8 space-y-6">
           <div className="space-y-2">
@@ -98,14 +113,18 @@ export default function RayProfile() {
           </div>
 
           <div className="space-y-2">
-            <Label>服務據點地址</Label>
-            <Input value={address} onChange={e => setAddress(e.target.value)} />
+            <Label>
+              {isRecycler && !isGoingHome ? '服務中心/倉庫點地址' : '服務據點地址'}
+            </Label>
+            <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="請輸入門牌地址" />
           </div>
 
           <div className="space-y-4 pt-4 border-t border-slate-100">
              <div className="flex justify-between items-center">
-              <Label className="font-bold">收運中心座標 (用於距離計算)</Label>
-              <Button variant="ghost" size="sm" onClick={getCurrentLocation} className="text-blue-600 h-8 rounded-full">
+              <Label className="font-bold">
+                {isRecycler && !isGoingHome ? '收購中心座標 (用於距離計算)' : '收運中心座標 (用於距離計算)'}
+              </Label>
+              <Button variant="ghost" size="sm" onClick={getCurrentLocation} className={`${textThemeClass} h-8 rounded-full`}>
                 <MapPin className="w-4 h-4 mr-1" />
                 定位目前位置
               </Button>
@@ -113,17 +132,19 @@ export default function RayProfile() {
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2">
                 <Label className="text-xs text-slate-500">緯度 Latitude</Label>
-                <Input value={lat} onChange={e => setLat(e.target.value)} placeholder="25.033" />
+                <Input value={lat} onChange={e => setLat(e.target.value)} placeholder="纬度，例如 25.033" />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs text-slate-500">經度 Longitude</Label>
-                <Input value={lng} onChange={e => setLng(e.target.value)} placeholder="121.564" />
+                <Input value={lng} onChange={e => setLng(e.target.value)} placeholder="经度，例如 121.564" />
               </div>
             </div>
           </div>
 
           <div className="space-y-2 pt-4 border-t border-slate-100">
-            <Label className="font-bold">最大收運距離 (公里)</Label>
+            <Label className="font-bold">
+              {isRecycler && !isGoingHome ? '最大收購距離 (公里)' : '最大收運距離 (公里)'}
+            </Label>
             <div className="flex items-center gap-2">
               <Input 
                 type="number" 
@@ -136,12 +157,16 @@ export default function RayProfile() {
               <span className="text-sm font-semibold text-slate-500">公里 (km)</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              設定您願意前往收運的最大單趟距離。若梅克魚的回收記錄與您的中心座標距離超過此範圍，系統將自動隱藏，保護您的調度效益。
+              {isRecycler && !isGoingHome 
+                ? '設定您願意前往收取的最遠單趟距離。若梅克魚的回收記錄與您的中心座標距離超過此範圍，系統將自動隱藏，保護您的經營效益。'
+                : '設定您願意前往收運的最大單趟距離。若梅克魚的回收記錄與您的中心座標距離超過此範圍，系統將自動隱藏，保護您的調度效益。'}
             </p>
           </div>
 
           <div className="space-y-4 pt-4 border-t border-slate-100">
-            <Label className="font-bold text-slate-800">常用收運交通工具 (可複選)</Label>
+            <Label className="font-bold text-slate-800">
+              {isRecycler && !isGoingHome ? '常用收取交通工具 (可複選)' : '常用收運交通工具 (可複選)'}
+            </Label>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {VEHICLE_OPTIONS.map((opt) => {
                 const isSelected = vehicles.includes(opt.id);
@@ -152,8 +177,8 @@ export default function RayProfile() {
                     onClick={() => toggleVehicle(opt.id)}
                     className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition-all duration-200 outline-none ${
                       isSelected 
-                        ? 'border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm' 
-                        : 'border-slate-100 bg-white text-slate-600 hover:border-slate-200 hover:bg-slate-50'
+                        ? borderActiveClass 
+                        : 'border-slate-100 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                     id={`vehicle-opt-${opt.id}`}
                   >
@@ -168,9 +193,9 @@ export default function RayProfile() {
           <Button 
             onClick={handleSave} 
             disabled={loading}
-            className="w-full h-12 rounded-full bg-blue-600 hover:bg-blue-700 mt-6"
+            className={`w-full h-12 rounded-full ${themeColorClass} mt-6 text-white text-sm font-bold`}
           >
-            <Save className="w-5 h-5 mr-2" />
+            <Save className="w-4 h-4 mr-2 inline" />
             儲存變更
           </Button>
         </CardContent>

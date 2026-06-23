@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../App';
 import { db } from '../../firebase';
-import { collection, query, where, onSnapshot, Timestamp, GeoPoint, serverTimestamp } from 'firebase/firestore';
-import { RecoveryRecord, RecordStatus, GoingHomePlan, PlanStatus, PlanStop, NotificationType } from '../../types';
+import { collection, query, where, onSnapshot, Timestamp, GeoPoint, serverTimestamp, getDocs } from 'firebase/firestore';
+import { RecoveryRecord, RecordStatus, GoingHomePlan, PlanStatus, PlanStop, NotificationType, UserProfile, MasterDataResource, GANode } from '../../types';
 import { createDocument, updateDocument, listDocuments, getDocument } from '../../services/firestoreService';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../components/ui/dialog';
@@ -30,9 +30,11 @@ import {
   User,
   Trash2,
   ThumbsUp,
-  Map as MapIcon
+  Map as MapIcon,
+  Coins
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { runGeneticRoutePlanner } from '../../utils/geneticAlgorithm';
 
 export default function ActivePlan() {
   const { user, profile } = useAuth();
@@ -60,7 +62,7 @@ export default function ActivePlan() {
   const [recordCache, setRecordCache] = useState<Record<string, RecoveryRecord>>({});
 
   // Resolved maker user profiles cache
-  const [makerProfiles, setMakerProfiles] = useState<Record<string, { displayName: string; phoneNumber?: string }>>({});
+  const [makerProfiles, setMakerProfiles] = useState<Record<string, { displayName: string; phoneNumber?: string; address?: string }>>({});
 
   useEffect(() => {
     const fetchMakerProfiles = async () => {
@@ -73,9 +75,34 @@ export default function ActivePlan() {
 
       if (activePlan?.stops) {
         activePlan.stops.forEach(stop => {
-          const rec = getRecordDetails(stop.recordId);
-          if (rec?.makerFishId) {
-            idsToFetch.add(rec.makerFishId);
+          if (stop.recyclerId) {
+            idsToFetch.add(stop.recyclerId);
+          }
+          if (stop.id) {
+            idsToFetch.add(stop.id);
+          }
+          if (stop.recordId) {
+            const rec = getRecordDetails(stop.recordId);
+            if (rec?.makerFishId) {
+              idsToFetch.add(rec.makerFishId);
+            }
+          }
+        });
+      }
+
+      if (planDraft?.stops) {
+        planDraft.stops.forEach(stop => {
+          if (stop.recyclerId) {
+            idsToFetch.add(stop.recyclerId);
+          }
+          if (stop.id) {
+            idsToFetch.add(stop.id);
+          }
+          if (stop.recordId) {
+            const rec = getRecordDetails(stop.recordId);
+            if (rec?.makerFishId) {
+              idsToFetch.add(rec.makerFishId);
+            }
           }
         });
       }
@@ -91,9 +118,11 @@ export default function ActivePlan() {
         try {
           const profileDoc = await getDocument<any>('users', id);
           if (profileDoc) {
+            const isRec = profileDoc.roles?.includes('RECYCLER');
             updatedProfiles[id] = {
-              displayName: profileDoc.displayName || '梅克魚用戶',
-              phoneNumber: profileDoc.phoneNumber || ''
+              displayName: profileDoc.displayName || (isRec ? '瑞莎魺收購商' : '梅克魚用戶'),
+              phoneNumber: profileDoc.phoneNumber || '',
+              address: profileDoc.address || ''
             };
             updated = true;
           }
@@ -108,7 +137,7 @@ export default function ActivePlan() {
     };
 
     fetchMakerProfiles();
-  }, [availableRequests, activePlan, recordCache]);
+  }, [availableRequests, activePlan, planDraft, recordCache]);
 
   // 1. Initial data fetching
   useEffect(() => {
@@ -182,7 +211,7 @@ export default function ActivePlan() {
     }
   };
 
-  // 2. Call backend Route Planning AI
+  // 2. Run Local Genetic Algorithm for optimal route planning
   const handlePlanRouteAI = async () => {
     if (selectedRequestIds.length === 0) {
       toast.error('請至少選擇一個收運請求來規劃計畫');
@@ -199,63 +228,112 @@ export default function ActivePlan() {
 
     setIsGenerating(true);
     try {
-      // Map selected records
-      const selectedRecordsData = selectedRequestIds.map(id => {
+      // A. Build Start Node
+      const startNode: GANode = {
+        id: 'START_NODE',
+        type: 'START',
+        coordinates: profile?.coordinates 
+          ? { latitude: profile.coordinates.latitude, longitude: profile.coordinates.longitude }
+          : { latitude: 25.0339, longitude: 121.5644 }, // Fallback to Taipei 101 coords if unavailable
+        displayName: profile?.displayName || '出發起點',
+        address: departureLocation || profile?.address || '當前起點'
+      };
+
+      // B. Build Pickups List (Selected Records)
+      const pickups: GANode[] = selectedRequestIds.map(id => {
         const r = getRecordDetails(id);
         return {
-          id: r?.id,
-          address: r?.address,
-          productCategory: r?.productCategory,
-          quantity: r?.quantity,
-          unit: r?.unit || '個',
-          recycleNotes: r?.recycleNotes || '',
-          materialCategory: r?.materialCategory,
-          timeWindow: r?.timeWindow || {},
-          coordinates: r?.coordinates ? { latitude: r.coordinates.latitude, longitude: r.coordinates.longitude } : null
+          id: r?.id || id,
+          type: 'PICKUP',
+          coordinates: r?.coordinates 
+            ? { latitude: r.coordinates.latitude, longitude: r.coordinates.longitude }
+            : { latitude: 25.0339, longitude: 121.5644 },
+          displayName: r?.productCategory || '回收點',
+          address: r?.address || '',
+          materialCategory: r?.materialCategory || '',
+          productCategory: r?.productCategory || '',
+          quantity: r?.quantity || 1,
+          unit: r?.unit || '個'
         };
       });
 
-      const response = await fetch('/api/planning/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          departureLocation,
-          departureTime: new Date(departureTime).toISOString(),
-          records: selectedRecordsData,
-          vehicles: profile?.vehicles || []
-        })
+      // C. Load Delivery Nodes (Recyclers from firebase)
+      const allUsers = await listDocuments<any>('users');
+      const filteredRecyclers = allUsers.filter(u => u.roles?.includes('RECYCLER'));
+      
+      const deliveries: GANode[] = filteredRecyclers.map(rec => {
+        const acceptedCategories = rec.acceptedCategories || [];
+        const prices: Record<string, number> = {};
+        
+        rec.recoveryGuides?.forEach((g: any) => {
+          if (g.price !== undefined && g.price !== null) {
+            prices[`${g.material}_${g.product}`] = Number(g.price);
+          }
+        });
+
+        return {
+          id: rec.id,
+          type: 'DELIVERY',
+          coordinates: rec.coordinates 
+            ? { latitude: rec.coordinates.latitude, longitude: rec.coordinates.longitude }
+            : { latitude: 25.0339, longitude: 121.5644 },
+          displayName: rec.displayName || '資源回收據點',
+          address: rec.address || '回收據點地址',
+          acceptedCategories,
+          prices
+        };
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.details || errData.error || 'Server error');
-      }
+      // D. Load Master Data Resources
+      const masterResources = await listDocuments<MasterDataResource>('masterData_resources');
 
-      const aiResult = await response.json();
-      
-      // Generate the draft GoingHomePlan object
-      const draftStops: PlanStop[] = aiResult.stops.map((stop: any) => ({
-        recordId: stop.recordId,
-        arrivalTime: Timestamp.fromDate(new Date(stop.arrivalTime)),
-        status: 'PENDING',
-        sortingOrder: stop.sortingOrder
-      }));
+      // E. Execute Genetic Algorithm
+      const fitnessResult = runGeneticRoutePlanner(
+        startNode,
+        pickups,
+        deliveries,
+        masterResources,
+        profile?.vehicles || []
+      );
 
-      // Sort stops by sortingOrder
-      draftStops.sort((a, b) => a.sortingOrder - b.sortingOrder);
+      const routeResult = fitnessResult.route;
+
+      // F. Structure the stops draft for GoingHomePlan
+      const draftStops: PlanStop[] = routeResult.nodes.slice(1).map((node, index) => {
+        const isPickup = node.type === 'PICKUP';
+        const arrivalTime = new Date(new Date(departureTime).getTime() + (index + 1) * 20 * 60 * 1000); // 20 min interval increments
+        
+        return {
+          id: node.id,
+          type: isPickup ? 'PICKUP' : 'DELIVERY',
+          recordId: isPickup ? node.id : undefined,
+          recyclerId: isPickup ? undefined : node.id,
+          arrivalTime: Timestamp.fromDate(arrivalTime),
+          status: 'PENDING',
+          sortingOrder: index + 1,
+          deliveredRecordIds: isPickup ? undefined : (node as any).deliveredRecordIds || [],
+          revenueEarned: isPickup ? undefined : (node as any).revenueEarned || 0,
+        };
+      });
 
       const generatedDraft: Partial<GoingHomePlan> = {
         goingHomeId: user?.uid,
-        departureTime: Timestamp.fromDate(new Date(aiResult.plannedDepartureTime || departureTime)),
-        transportationType: aiResult.transportationType || '輕型機車',
+        departureTime: Timestamp.fromDate(new Date(departureTime)),
+        transportationType: profile?.vehicles?.[0] || '環保電動機車',
         stops: draftStops,
-        routePolyline: aiResult.routePolyline || '已規劃最優路徑',
+        routePolyline: '已由前端自適應基因演算法計算出黃金路線 🧬',
         status: PlanStatus.DRAFT,
-        createdAt: Timestamp.now()
+        createdAt: Timestamp.now(),
+        
+        // Save computed genetic benchmarks
+        totalDistance: Number(routeResult.totalDistance.toFixed(2)),
+        totalLoadWeightedDistance: Number(routeResult.totalLoadWeightedDistance.toFixed(2)),
+        totalRevenue: routeResult.totalRevenue
       };
 
       setPlanDraft(generatedDraft);
-      toast.success('AI 路線調度規劃完成！');
+      toast.success(`自適應基因演算法分析完畢！(耗時已繁衍 ${fitnessResult.stats.generationsComputed} 代物競天擇)`);
+
     } catch (error: any) {
       console.error(error);
       toast.error('AI 規劃失敗: ' + error.message);
@@ -279,26 +357,28 @@ export default function ActivePlan() {
       const rayName = profile?.displayName || user.displayName || '資源勾引魟';
       
       for (const stop of planDraft.stops || []) {
-        const record = getRecordDetails(stop.recordId);
-        if (record) {
-          // Update record status to collection confirmed
-          await updateDocument('recoveryRecords', record.id, {
-            status: RecordStatus.COLLECTION_CONFIRMED,
-            statusUpdatedAt: new Date()
-          } as any);
+        if (stop.type !== 'DELIVERY' && stop.recordId) {
+          const record = getRecordDetails(stop.recordId);
+          if (record) {
+            // Update record status to collection confirmed
+            await updateDocument('recoveryRecords', record.id, {
+              status: RecordStatus.COLLECTION_CONFIRMED,
+              statusUpdatedAt: new Date()
+            } as any);
 
-          // Add notification for the maker fish
-          const arrivalStr = stop.arrivalTime.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-          await createDocument('notifications', {
-            receiverId: record.makerFishId,
-            type: NotificationType.PLAN_CONFIRMED,
-            title: '【收運計畫已配置】勾引魟預計抵達時間確認！',
-            content: `高效率快報！勾引魟「${rayName}」已將您的資源收運納入行程計畫中。\n\n出發時間：${planDraft.departureTime?.toDate().toLocaleString()}\n預計前往收取您的 [${record.productCategory}] 時間大約在 ${arrivalStr}。\n請確認該時段將資材放置於指定地址，感謝您的支持！`,
-            recordId: record.id,
-            planId: planId,
-            isRead: false,
-            createdAt: new Date()
-          });
+            // Add notification for the maker fish
+            const arrivalStr = stop.arrivalTime.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+            await createDocument('notifications', {
+              receiverId: record.makerFishId,
+              type: NotificationType.PLAN_CONFIRMED,
+              title: '【收運計畫已配置】勾引魟預計抵達時間確認！',
+              content: `高效率快報！勾引魟「${rayName}」已將您的資源收運納入行程計畫中。\n\n出發時間：${planDraft.departureTime?.toDate().toLocaleString()}\n預計前往收取您的 [${record.productCategory}] 時間大約在 ${arrivalStr}。\n請確認該時段將資材放置於指定地址，感謝您的支持！`,
+              recordId: record.id,
+              planId: planId,
+              isRead: false,
+              createdAt: new Date()
+            });
+          }
         }
       }
 
@@ -324,6 +404,40 @@ export default function ActivePlan() {
       await updateDocument('goingHomePlans', activePlan.id, {
         stops: updatedStops
       });
+
+      // Handle Delivery Stops transition
+      if (stop.type === 'DELIVERY') {
+        if (newStatus === 'ARRIVED') {
+          const deliveredIds = stop.deliveredRecordIds || [];
+          const recyclerName = makerProfiles[stop.recyclerId || stop.id]?.displayName || '瑞莎魺收購商';
+          
+          for (const id of deliveredIds) {
+            const record = getRecordDetails(id);
+            if (record) {
+              await updateDocument('recoveryRecords', record.id, {
+                status: RecordStatus.COMPLETED,
+                statusUpdatedAt: new Date()
+              } as any);
+
+              // Notify Maker Fish
+              await createDocument('notifications', {
+                receiverId: record.makerFishId,
+                type: NotificationType.COLLECTION_COMPLETED,
+                title: '【綠色交易所回饋】物資已成功售予瑞莎魺回收商！',
+                content: `賀！恭喜！您的回收物資 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）已安全抵達並交付給瑞莎魺回收商「${recyclerName}」，完成現領綠色回饋金，感謝您為地球循環盡的一份心力！`,
+                recordId: record.id,
+                planId: activePlan.id,
+                isRead: false,
+                createdAt: new Date()
+              });
+            }
+          }
+          toast.success(`恭喜！成功交付瑞莎魺「${recyclerName}」並變現 ${stop.revenueEarned || 0} 元台幣！`);
+        } else {
+          toast.info('已跳過此據點交付，物資保留在車上。');
+        }
+        return;
+      }
 
       // Also update the recoveryRecord status
       const record = getRecordDetails(stop.recordId);
@@ -418,25 +532,27 @@ export default function ActivePlan() {
       let completedCount = 0;
       for (const stop of activePlan.stops) {
         if (stop.status === 'ARRIVED') {
-          const record = getRecordDetails(stop.recordId);
-          if (record) {
-            await updateDocument('recoveryRecords', record.id, {
-              status: RecordStatus.COMPLETED,
-              statusUpdatedAt: new Date()
-            } as any);
+          if (stop.recordId) {
+            const record = getRecordDetails(stop.recordId);
+            if (record && record.status !== RecordStatus.COMPLETED) {
+              await updateDocument('recoveryRecords', record.id, {
+                status: RecordStatus.COMPLETED,
+                statusUpdatedAt: new Date()
+              } as any);
 
-            completedCount++;
+              completedCount++;
 
-            // Create system celebrate notification
-            await createDocument('notifications', {
-              receiverId: record.makerFishId,
-              type: NotificationType.COLLECTION_COMPLETED,
-              title: '【綠色任務圓滿圓融】回收物資已運抵環保目的地！',
-              content: `感謝您為永續家園做出的努力！由您交付的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）已安全運抵專業處理中心，順利進入循環工藝的奇蹟之旅！`,
-              recordId: record.id,
-              isRead: false,
-              createdAt: new Date()
-            });
+              // Create system celebrate notification
+              await createDocument('notifications', {
+                receiverId: record.makerFishId,
+                type: NotificationType.COLLECTION_COMPLETED,
+                title: '【綠色任務圓滿圓融】回收物資已運抵環保目的地！',
+                content: `感謝您為永續家園做出的努力！由您交付的 [${record.productCategory}]（數量: ${record.quantity} ${record.unit || '個'}）已安全運抵專業處理中心，順利進入循環工藝的奇蹟之旅！`,
+                recordId: record.id,
+                isRead: false,
+                createdAt: new Date()
+              });
+            }
           }
         }
       }
@@ -494,51 +610,165 @@ export default function ActivePlan() {
             <div className="lg:col-span-7 space-y-6">
               
               {/* CURRENT ACTIVE STOP SECTION */}
-              {activeRecord ? (
-                <Card className="rounded-3xl border-blue-200 border-2 shadow-lg overflow-hidden bg-white animate-in slide-in-from-bottom duration-300">
-                  <div className="bg-blue-600 p-6 text-white flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2 text-xs opacity-90 font-bold uppercase tracking-widest mb-1">
-                        <RouteIcon className="w-4 h-4" />
-                        當前收取站點 (第 {currentStopIndex + 1} 站 / 共 {activePlan.stops.length} 站)
-                      </div>
-                      <h3 className="text-2xl font-black mt-2">{activeRecord.productCategory}</h3>
-                      <span className="text-sm text-blue-100 font-medium">前置建議: {activeRecord.aiSuggestion}</span>
-                    </div>
-                    <div className="bg-blue-700 font-black px-4 py-2 rounded-2xl text-xl shrink-0 text-center">
-                      {activeRecord.quantity}
-                      <span className="text-xs font-bold block opacity-80">{activeRecord.unit || '個'}</span>
-                    </div>
-                  </div>
-
-                  <CardContent className="p-6 space-y-6">
-                    <div className="space-y-4">
-                      
-                      <div className="flex items-start gap-3">
-                        <MapPin className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-xs font-bold text-slate-400 uppercase">收取地址</p>
-                          <p className="text-slate-800 font-extrabold text-base leading-snug mt-0.5">{activeRecord.address}</p>
+              {currentStop ? (
+                currentStop.type === 'DELIVERY' ? (
+                  <Card className="rounded-3xl border-amber-200 border-2 shadow-lg overflow-hidden bg-white animate-in slide-in-from-bottom duration-300">
+                    <div className="bg-amber-500 p-6 text-white flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center gap-2 text-xs opacity-90 font-bold uppercase tracking-widest mb-1">
+                          <Coins className="w-4 h-4 text-white" />
+                          有償收購交付站 (第 {currentStopIndex + 1} 站 / 共 {activePlan.stops.length} 站)
                         </div>
+                        <h3 className="text-2xl font-black mt-2">
+                          {makerProfiles[currentStop.recyclerId || currentStop.id || '']?.displayName || '瑞莎魺收購據點'}
+                        </h3>
+                        <span className="text-sm text-amber-50 font-medium">現場交付變現可期 💵</span>
                       </div>
+                      <div className="bg-amber-600 font-black px-4 py-3 rounded-2xl text-xl shrink-0 text-center flex flex-col justify-center">
+                        <span className="text-[10px] uppercase font-bold opacity-80 block">預估收益</span>
+                        <span className="leading-none text-xl mt-1">+{currentStop.revenueEarned || 0}</span>
+                        <span className="text-[10px] font-bold block opacity-80">元</span>
+                      </div>
+                    </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <CardContent className="p-6 space-y-6">
+                      <div className="space-y-4">
                         <div className="flex items-start gap-3">
-                          <Clock className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                          <MapPin className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
                           <div>
-                            <p className="text-xs font-bold text-slate-400">預估到達時間</p>
-                            <p className="text-slate-800 font-extrabold mt-0.5">
-                              {currentStop?.arrivalTime?.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+                            <p className="text-xs font-bold text-slate-400 uppercase">交付收購地址</p>
+                            <p className="text-slate-800 font-extrabold text-base leading-snug mt-0.5">
+                              {makerProfiles[currentStop.recyclerId || currentStop.id || '']?.address || '瑞莎魺回收據點台北店'}
                             </p>
                           </div>
                         </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                          <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-400">安排交付時間</p>
+                              <p className="text-slate-800 font-extrabold mt-0.5">
+                                {currentStop?.arrivalTime?.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-3">
+                            <User className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-400">回收據點聯絡人</p>
+                              <div className="text-slate-800 text-sm mt-0.5">
+                                <p className="font-extrabold text-slate-900">
+                                  {makerProfiles[currentStop.recyclerId || currentStop.id || '']?.displayName || '瑞莎魺收購據點'}
+                                </p>
+                                {makerProfiles[currentStop.recyclerId || currentStop.id || '']?.phoneNumber && (
+                                  <a 
+                                    href={`tel:${makerProfiles[currentStop.recyclerId || currentStop.id || ''].phoneNumber}`}
+                                    className="text-amber-600 hover:text-amber-700 font-bold flex items-center gap-1 hover:underline text-xs"
+                                  >
+                                    <Phone className="w-3.5 h-3.5 inline-block" />
+                                    {makerProfiles[currentStop.recyclerId || currentStop.id || ''].phoneNumber}
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Delivered items list details */}
+                        <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-2xl text-xs text-slate-700 mt-2 space-y-2">
+                          <span className="font-extrabold block text-amber-800 mb-1">📦 本站預定交付資材細項：</span>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {(currentStop.deliveredRecordIds || []).map(recId => {
+                              const r = getRecordDetails(recId);
+                              if (!r) return null;
+                              return (
+                                <div key={recId} className="flex justify-between p-2 bg-white rounded-lg border border-amber-100">
+                                  <span className="font-semibold text-slate-850">{r.productCategory}</span>
+                                  <span className="font-bold text-amber-650">{r.quantity} {r.unit || '個'}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-slate-100 pt-6 flex flex-col sm:flex-row gap-3">
+                        <Button
+                          onClick={() => {
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${makerProfiles[currentStop.recyclerId || currentStop.id || '']?.address || '瑞莎魺回收站'}`, '_blank');
+                          }}
+                          variant="outline"
+                          className="flex-1 rounded-full border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold h-12 text-sm flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Navigation className="w-4 h-4 text-amber-500" />
+                          導航至收購商
+                        </Button>
+                        
+                        <Button
+                          onClick={() => handleUpdateStopStatus(currentStopIndex, 'ARRIVED')}
+                          className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-extrabold h-12 rounded-full shadow-md flex items-center justify-center gap-2 transition-all animate-pulse"
+                        >
+                          <Check className="w-5 h-5" />
+                          確認交付變現 💰
+                        </Button>
+
+                        <Button
+                          onClick={() => handleUpdateStopStatus(currentStopIndex, 'SKIPPED')}
+                          variant="ghost"
+                          className="rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 font-bold h-12 text-xs flex items-center justify-center gap-1 shrink-0 px-4"
+                        >
+                          <X className="w-4 h-4" />
+                          跳過此站
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : activeRecord ? (
+                  <Card className="rounded-3xl border-blue-200 border-2 shadow-lg overflow-hidden bg-white animate-in slide-in-from-bottom duration-300">
+                    <div className="bg-blue-600 p-6 text-white flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center gap-2 text-xs opacity-90 font-bold uppercase tracking-widest mb-1">
+                          <RouteIcon className="w-4 h-4" />
+                          當前收取站點 (第 {currentStopIndex + 1} 站 / 共 {activePlan.stops.length} 站)
+                        </div>
+                        <h3 className="text-2xl font-black mt-2">{activeRecord.productCategory}</h3>
+                        <span className="text-sm text-blue-100 font-medium">前置建議: {activeRecord.aiSuggestion}</span>
+                      </div>
+                      <div className="bg-blue-700 font-black px-4 py-2 rounded-2xl text-xl shrink-0 text-center">
+                        {activeRecord.quantity}
+                        <span className="text-xs font-bold block opacity-80">{activeRecord.unit || '個'}</span>
+                      </div>
+                    </div>
+
+                    <CardContent className="p-6 space-y-6">
+                      <div className="space-y-4">
+                        
                         <div className="flex items-start gap-3">
-                          <User className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                          <MapPin className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
                           <div>
-                            <p className="text-xs font-bold text-slate-400">聯絡資訊 (梅克魚)</p>
-                            <div className="text-slate-800 text-sm mt-0.5">
-                              {activeRecord ? (
+                            <p className="text-xs font-bold text-slate-400 uppercase">收取地址</p>
+                            <p className="text-slate-800 font-extrabold text-base leading-snug mt-0.5">{activeRecord.address}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                          <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-400">預估到達時間</p>
+                              <p className="text-slate-800 font-extrabold mt-0.5">
+                                {currentStop?.arrivalTime?.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-3">
+                            <User className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-400">聯絡資訊 (梅克魚)</p>
+                              <div className="text-slate-800 text-sm mt-0.5">
                                 <div className="space-y-0.5">
                                   <p className="font-extrabold text-slate-900">
                                     {makerProfiles[activeRecord.makerFishId]?.displayName || '梅克魚客戶'}
@@ -555,54 +785,57 @@ export default function ActivePlan() {
                                     <p className="text-slate-400 text-xs">無提供聯絡電話</p>
                                   )}
                                 </div>
-                              ) : (
-                                <span className="font-bold">梅克魚客戶</span>
-                              )}
+                              </div>
                             </div>
                           </div>
                         </div>
+
+                        {activeRecord.recycleNotes && (
+                          <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-xs text-slate-600 mt-2">
+                            <span className="font-extrabold block text-slate-700 mb-1">梅克魚留言備註：</span>
+                            「{activeRecord.recycleNotes}」
+                          </div>
+                        )}
                       </div>
 
-                      {activeRecord.recycleNotes && (
-                        <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-xs text-slate-600 mt-2">
-                          <span className="font-extrabold block text-slate-700 mb-1">梅克魚留言備註：</span>
-                          「{activeRecord.recycleNotes}」
-                        </div>
-                      )}
-                    </div>
+                      <div className="border-t border-slate-100 pt-6 flex flex-col sm:flex-row gap-3">
+                        <Button
+                          onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${activeRecord.coordinates.latitude},${activeRecord.coordinates.longitude}`, '_blank')}
+                          variant="outline"
+                          className="flex-1 rounded-full border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold h-12 text-sm flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Navigation className="w-4 h-4 text-blue-600" />
+                          Google Map 導航
+                        </Button>
+                        
+                        <Button
+                          onClick={() => handleUpdateStopStatus(currentStopIndex, 'ARRIVED')}
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold h-12 rounded-full shadow-md flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Check className="w-5 h-5" />
+                          確認物資上車
+                        </Button>
 
-                    <div className="border-t border-slate-100 pt-6 flex flex-col sm:flex-row gap-3">
-                      <Button
-                        onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${activeRecord.coordinates.latitude},${activeRecord.coordinates.longitude}`, '_blank')}
-                        variant="outline"
-                        className="flex-1 rounded-full border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold h-12 text-sm flex items-center justify-center gap-2 transition-all"
-                      >
-                        <Navigation className="w-4 h-4 text-blue-600" />
-                        Google Map 導航
-                      </Button>
-                      
-                      <Button
-                        onClick={() => handleUpdateStopStatus(currentStopIndex, 'ARRIVED')}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold h-12 rounded-full shadow-md flex items-center justify-center gap-2 transition-all"
-                      >
-                        <Check className="w-5 h-5" />
-                        確認物資上車
-                      </Button>
-
-                      <Button
-                        onClick={() => {
-                          setUnableReasonRecordId(activeRecord.id);
-                          setUnableReasonText('');
-                        }}
-                        variant="ghost"
-                        className="rounded-full text-red-500 hover:text-red-650 hover:bg-red-50 font-bold h-12 text-xs flex items-center justify-center gap-1 shrink-0 px-4"
-                      >
-                        <X className="w-4 h-4" />
-                        無法收取
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                        <Button
+                          onClick={() => {
+                            setUnableReasonRecordId(activeRecord.id);
+                            setUnableReasonText('');
+                          }}
+                          variant="ghost"
+                          className="rounded-full text-red-500 hover:text-red-650 hover:bg-red-50 font-bold h-12 text-xs flex items-center justify-center gap-1 shrink-0 px-4"
+                        >
+                          <X className="w-4 h-4" />
+                          無法收取
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="bg-blue-50 border border-blue-100 p-8 rounded-3xl flex flex-col items-center justify-center text-center">
+                    <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
+                    <p className="text-blue-800 text-sm">載入收取資料細節中...</p>
+                  </div>
+                )
               ) : (
                 <div className="bg-emerald-50 border border-emerald-100 p-8 rounded-3xl flex flex-col items-center justify-center text-center">
                   <div className="bg-emerald-100 p-4 rounded-full mb-4">
@@ -680,18 +913,31 @@ export default function ActivePlan() {
               
               <div className="space-y-3 relative before:absolute before:left-6 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200">
                 {activePlan.stops.map((stop, index) => {
-                  const item = getRecordDetails(stop.recordId);
+                  const isPickup = stop.type !== 'DELIVERY';
+                  const item = isPickup ? getRecordDetails(stop.recordId) : null;
+                  const recProfile = !isPickup ? makerProfiles[stop.recyclerId || stop.id || ''] : null;
+                  
                   const isCurrent = index === currentStopIndex;
                   const isCompleted = stop.status === 'ARRIVED';
                   const isSkipped = stop.status === 'SKIPPED';
 
+                  const title = isPickup 
+                    ? (item?.productCategory || '讀取中...')
+                    : `💰 【收購交付分站】${recProfile?.displayName || '瑞莎魺據點'}`;
+                  const address = isPickup
+                    ? (item?.address || '讀取地址中...')
+                    : (recProfile?.address || '回收商實體地址');
+                  const countLabel = isPickup
+                    ? `數量: ${item?.quantity || 0} ${item?.unit || '個'}`
+                    : `預估收益: +${stop.revenueEarned || 0} 元`;
+
                   return (
-                    <div key={stop.recordId} className={`flex gap-4 items-start relative z-10 transition-opacity duration-300 ${isCurrent ? 'opacity-100 scale-[1.01]' : 'opacity-70'}`}>
+                    <div key={stop.id || stop.recordId || index} className={`flex gap-4 items-start relative z-10 transition-opacity duration-300 ${isCurrent ? 'opacity-100 scale-[1.01]' : 'opacity-70'}`}>
                       {/* Left icon timeline indicators */}
                       <div className={`w-12 h-12 rounded-full shrink-0 flex items-center justify-center border-2 shadow-sm ${
-                        isCompleted ? 'bg-emerald-100 border-emerald-500 text-emerald-600' :
+                        isCompleted ? (isPickup ? 'bg-emerald-100 border-emerald-500 text-emerald-600' : 'bg-amber-100 border-amber-550 text-amber-600') :
                         isSkipped ? 'bg-slate-100 border-slate-300 text-slate-400' :
-                        isCurrent ? 'bg-blue-600 border-blue-600 text-white animate-pulse' :
+                        isCurrent ? (isPickup ? 'bg-blue-600 border-blue-600 text-white animate-pulse' : 'bg-amber-500 border-amber-500 text-white animate-pulse') :
                         'bg-white border-slate-200 text-slate-400'
                       }`}>
                         {isCompleted ? <Check className="w-5 h-5" /> : 
@@ -701,17 +947,19 @@ export default function ActivePlan() {
 
                       {/* Content Card */}
                       <div className={`flex-1 p-4 rounded-2xl border ${
-                        isCurrent ? 'bg-blue-50/50 border-blue-100 shadow-md' : 'bg-white border-slate-100'
+                        isCurrent 
+                          ? (isPickup ? 'bg-blue-50/50 border-blue-100 shadow-md' : 'bg-amber-50/50 border-amber-150 shadow-md') 
+                          : 'bg-white border-slate-100'
                       }`}>
                         <div className="flex justify-between items-start">
                           <h4 className="font-bold text-slate-850 text-sm">
-                            {item?.productCategory || '讀取中...'}
+                            {title}
                           </h4>
                           <span className="text-[10px] font-mono text-slate-400">
                             {stop.arrivalTime?.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p className="text-slate-500 text-xs mt-1 truncate max-w-[180px]">{item?.address || '讀取地址中...'}</p>
+                        <p className="text-slate-500 text-xs mt-1 truncate max-w-[180px]">{address}</p>
                         <div className="flex items-center gap-2 mt-2">
                           <Badge variant="outline" className={`text-[10px] ${
                             isCompleted ? 'border-emerald-100 text-emerald-650 bg-emerald-50/50' :
@@ -719,9 +967,9 @@ export default function ActivePlan() {
                             isCurrent ? 'border-blue-200 text-blue-600 bg-blue-50' :
                             'border-slate-100 text-slate-400'
                           }`}>
-                            {isCompleted ? '已上車' : isSkipped ? '已跳過' : isCurrent ? '即將收取' : '待處理'}
+                            {isCompleted ? (isPickup ? '已上車' : '已交付變現 💰') : isSkipped ? '已跳過' : isCurrent ? (isPickup ? '即將收取' : '即將抵達交付 💰') : '待處理'}
                           </Badge>
-                          <span className="text-[10px] font-bold text-slate-500 font-mono">數量: {item?.quantity || 0} {item?.unit || '個'}</span>
+                          <span className="text-[10px] font-bold text-slate-500 font-mono">{countLabel}</span>
                         </div>
                       </div>
                     </div>
@@ -785,22 +1033,37 @@ export default function ActivePlan() {
                     
                     <div className="space-y-3 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
                       {planDraft.stops?.map((stop, idx) => {
-                        const item = getRecordDetails(stop.recordId);
+                        const isPickup = stop.type !== 'DELIVERY';
+                        const item = isPickup ? getRecordDetails(stop.recordId) : null;
+                        const recProfile = !isPickup ? makerProfiles[stop.recyclerId || stop.id || ''] : null;
+
+                        const title = isPickup 
+                          ? (item?.productCategory || '載入回收品項') 
+                          : `💰 【瑞莎魺交付】${recProfile?.displayName || '收購站'}`;
+                        const address = isPickup 
+                          ? (item?.address || '讀取中...') 
+                          : (recProfile?.address || '收購商據點地址');
+                        const countLabel = isPickup
+                          ? `數量: ${item?.quantity || 0} ${item?.unit || '個'}`
+                          : `可領收購回饋: +${stop.revenueEarned || 0} 元`;
+
                         return (
-                          <div key={stop.recordId} className="flex gap-4 items-center relative pl-1">
-                            <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 font-bold text-xs flex items-center justify-center border-2 border-white shadow-sm shrink-0">
+                          <div key={stop.id || stop.recordId || idx} className="flex gap-4 items-center relative pl-1">
+                            <div className={`w-6 h-6 rounded-full font-bold text-xs flex items-center justify-center border-2 border-white shadow-sm shrink-0 ${
+                              isPickup ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-650'
+                            }`}>
                               {idx + 1}
                             </div>
                             <div className="flex-1 flex justify-between items-center bg-slate-50 hover:bg-slate-100/50 p-3 rounded-xl hover:shadow-xs transition-all border border-slate-100 text-xs min-w-0 gap-2">
                               <div className="min-w-0 flex-1">
-                                <span className="font-extrabold text-slate-800 block truncate">{item?.productCategory}</span>
-                                <span className="text-slate-400 block truncate mt-0.5 max-w-[120px] xs:max-w-[160px] sm:max-w-[220px]" title={item?.address}>{item?.address}</span>
+                                <span className="font-extrabold text-slate-800 block truncate">{title}</span>
+                                <span className="text-slate-400 block truncate mt-0.5 max-w-[120px] xs:max-w-[160px] sm:max-w-[220px]" title={address}>{address}</span>
                               </div>
                               <div className="text-right shrink-0 min-w-fit">
-                                <span className="font-extrabold text-blue-600 block whitespace-nowrap">
+                                <span className={`font-extrabold block whitespace-nowrap ${isPickup ? 'text-blue-600' : 'text-amber-650'}`}>
                                   {stop.arrivalTime?.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
                                 </span>
-                                <span className="text-slate-400 text-[10px] block whitespace-nowrap">數量: {item?.quantity} {item?.unit || '個'}</span>
+                                <span className="text-slate-400 text-[10px] block whitespace-nowrap">{countLabel}</span>
                               </div>
                             </div>
                           </div>
@@ -832,21 +1095,46 @@ export default function ActivePlan() {
             </div>
 
             {/* Right side helper info */}
-            <div className="lg:col-span-5 bg-blue-50 border border-blue-100 p-6 rounded-3xl h-fit space-y-4">
-              <div className="flex gap-2 text-blue-700 font-bold text-base items-center">
-                <Sparkles className="w-5 h-5 text-blue-600" />
-                <h3>永續 AI 調度提示資訊</h3>
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50/80 border border-amber-100 p-6 rounded-3xl space-y-4 shadow-xs">
+                <div className="flex gap-2 text-amber-800 font-extrabold text-base items-center">
+                  <Coins className="w-5 h-5 text-amber-600 animate-bounce" />
+                  <h3>🧬 基因演算法最佳化財務預估</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white/80 p-3 rounded-2xl border border-amber-100/50">
+                    <span className="text-[10px] text-slate-400 font-bold block">總排程里數</span>
+                    <span className="text-xl font-black text-slate-800 font-mono">{planDraft.totalDistance || '0'}</span>
+                    <span className="text-[10px] text-slate-450 ml-1 font-bold">公里</span>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-2xl border border-amber-100/50">
+                    <span className="text-[10px] text-slate-440 font-bold block">預估收取收益</span>
+                    <span className="text-xl font-black text-amber-600 font-mono">+{planDraft.totalRevenue || '0'}</span>
+                    <span className="text-[10px] text-amber-600 ml-1 font-bold">元</span>
+                  </div>
+                </div>
+                <div className="bg-amber-600/5 p-3.5 rounded-2xl border border-amber-600/10 text-xs text-amber-800 leading-snug">
+                  <p className="font-extrabold text-amber-900 mb-1">💡 多站點「自適應局部卸載變現」最佳化：</p>
+                  本趟路線已被安排在收取特定類型物資後，優先安排經過相容的<strong>瑞莎魺收購據點</strong>進行卸載交易變現，極大化減少全程載重（目前虛擬加權車載運輸成本耗損降至 <strong>{planDraft.totalLoadWeightedDistance || '0'}</strong> km-kg），並現領收購回饋金！
+                </div>
               </div>
-              <p className="text-blue-600/90 text-xs leading-relaxed">
-                本系統在取得您的出發位置與各梅克魚點位配置後，會考量：
-              </p>
-              <ul className="text-blue-600/90 text-xs space-y-2 list-disc pl-4 font-medium">
-                <li>各點梅克魚交付時段相容性。</li>
-                <li>最短的拓撲公路幾何行程。</li>
-                <li>建議最環保省力的運具工具 (本趟 AI 為您適配：<strong>{planDraft.transportationType}</strong>)。</li>
-              </ul>
-              <div className="pt-2 border-t border-blue-100 text-[10px] text-blue-500">
-                核准此計畫後，系統將在背景通知所有梅克魚，讓他們做好準備，做好瓶罐沖洗，讓綠色連結更順暢。
+
+              <div className="bg-blue-50 border border-blue-100 p-6 rounded-3xl h-fit space-y-4">
+                <div className="flex gap-2 text-blue-700 font-bold text-base items-center">
+                  <Sparkles className="w-5 h-5 text-blue-600" />
+                  <h3>永續局部適配提示</h3>
+                </div>
+                <p className="text-blue-600/90 text-xs leading-relaxed">
+                  本系統透過運行基因智慧，分析您與配合之各據點的即時拓撲坐標與資材配重：
+                </p>
+                <ul className="text-blue-600/90 text-xs space-y-2 list-disc pl-4 font-medium">
+                  <li>符合各點梅克魚交付時段相容性。</li>
+                  <li>自整最節省能耗的局部瑞莎魺收購交付中繼站。</li>
+                  <li>建議最省力的運作載重配置（本趟 AI 適配：<strong>{planDraft.transportationType}</strong>）。</li>
+                </ul>
+                <div className="pt-2 border-t border-blue-100 text-[10px] text-blue-500">
+                  確認此計畫後，系統將自動派發詳細的預估時間通知予各關係人，讓回收物資流程合作更加流暢。
+                </div>
               </div>
             </div>
           </div>

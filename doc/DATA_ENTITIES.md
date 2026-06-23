@@ -33,7 +33,7 @@
 | `photoURL` | `string` | 否 | - | **頭像 URL** (Google 帳戶頭像連結或預設頭像) |
 | `email` | `string` | 是 | - | **電子郵件信箱** (Auth 註冊信箱) |
 | `phoneNumber` | `string` | 否 | - | **聯絡電話** (收運當日供魟魚臨時緊急聯絡使用) |
-| `roles` | `UserRole[]` | 是 | `[]` | **帳號角色陣列**：`'MAKER_FISH'` (梅克魚), `'GOING_HOME'` (勾引魟), `'SYSTEM_ADMIN'` (管理員)。使用者可多選，並在工作區自由切換。 |
+| `roles` | `UserRole[]` | 是 | `[]` | **帳號角色陣列**：`'MAKER_FISH'` (梅克魚), `'GOING_HOME'` (勾引魟), `'RECYCLER'` (資源瑞莎魺), `'SYSTEM_ADMIN'` (管理員)。使用者可多選，並在工作區自由切換。 |
 | `address` | `string` | 否 | - | **通訊地址** (梅克魚的物資交付地址 / 勾引魟的調配或出發據點) |
 | `coordinates` | `GeoPoint` | 否 | - | **地圖座標** (Firestore 原生 `GeoPoint` 物件，供半徑 10 公里地理搜尋) |
 | `geohash` | `string` | 否 | - | **Geohash 雜湊值** (用以快速進行資料庫端地理圍欄邊界查詢) |
@@ -50,13 +50,14 @@
 ### 子嵌套結構 (Nested Schemas within UserProfile)
 
 #### 1A. 專屬回收處理指引 (`RecoveryGuide`)
-供登入為資源勾引魟之使用者針對特定收取項目設定其個別期待的前置處理規則：
+供登入為資源勾引魟或資源瑞莎魺之使用者針對特定收取項目設定其個別期待的前置處理規則與收購估價：
 ```typescript
 interface RecoveryGuide {
   resourceId: string;    // 關聯 MasterDataResource 的唯一識別碼
   material: string;      // 材質分類 (如: 塑膠)
   product: string;       // 產品名稱 (如: 寶特瓶)
   instructions: string;  // 專屬整理指示 (如: 請先將蓋子撕下、清洗後壓扁)
+  price?: number;        // 收購估價 (資源瑞莎魺專用每一單位的收購價格)
 }
 ```
 
@@ -128,19 +129,27 @@ export enum RecordStatus {
 | `id` | `string` | 是 | - | **計畫 ID** |
 | `goingHomeId` | `string` | 是 | - | **負責執行計畫之勾引魟 ID** (關聯 `users.id`) |
 | `departureTime` | `Timestamp` | 是 | - | **計畫預定出發時間** |
-| `transportationType` | `string` | 否 | - | **載運交通工具** (由 AI 模型依物資載量自適應推薦建議，EX: 環保電動機車、永續三輪重卡) |
-| `stops` | `PlanStop[]` | 是 | `[]` | **排程順序停靠站清單** (包含到達順序及各站單一操作狀態，詳解見下) |
+| `transportationType` | `string` | 否 | - | **載運交通工具** (由 AI 模型或基因演算法依物資載量、交通選項自適應推薦建議) |
+| `stops` | `PlanStop[]` | 是 | `[]` | **排程順序停靠站清單** (包含到達順序及各站單一操作狀態，涵蓋收貨點與交貨點，詳解見下) |
 | `routePolyline` | `string` | 否 | - | **收運航線拓撲描述標註** (用作模擬地圖渲染描述) |
 | `status` | `PlanStatus` | 是 | `DRAFT` | **收運計畫狀態**：`'DRAFT'` (審閱中草稿), `'APPROVED'` (核准啟動並運行中), `'COMPLETED'` (整趟計畫完成) |
+| `totalDistance` | `number` | 否 | - | **本趟路線預估總距離 (公里 km)** |
+| `totalLoadWeightedDistance` | `number` | 否 | - | **本趟載重能耗消耗指數 (kg * km)** |
+| `totalRevenue` | `number` | 否 | - | **整趟計畫賣予瑞莎魺所賺取之總變現收益 (台幣元)** |
 | `createdAt` | `Timestamp` | 是 | `serverTimestamp()` | **計畫草稿生成時間** |
 
 ### 子結構 ── 停靠站節點 (`PlanStop`)
 ```typescript
 interface PlanStop {
-  recordId: string;                     // 關聯 recoveryRecords 的資源唯一識別碼
-  arrivalTime: Timestamp;               // AI 調配規劃之預估到達時間
-  status: 'PENDING' | 'ARRIVED' | 'SKIPPED'; // 站點現場執行狀態：待處理 / 已確認上車 / 異常跳過
-  sortingOrder: number;                 // 物流排序順位編號 (由 1 開始遞增)
+  id: string;                                // 站點唯一識別碼 (若為收貨則為 recordId，若為交貨則為 recyclerId)
+  type: 'PICKUP' | 'DELIVERY';               // 站點類型二分法
+  recordId?: string;                         // 僅 type === 'PICKUP' 時存在，關聯歷史回收記錄 ID
+  recyclerId?: string;                       // 僅 type === 'DELIVERY' 時存在，關聯瑞莎魺的使用者 UID
+  arrivalTime: Timestamp;                    // AI / 基因演算法規劃之預估到達時間
+  status: 'PENDING' | 'ARRIVED' | 'SKIPPED'; // 站點現場執行狀態：待處理 / 已確認執行(上車或卸貨) / 異常跳過
+  sortingOrder: number;                      // 物流排序順位編號 (由 1 開始遞增)
+  deliveredRecordIds?: string[];             // 僅 type === 'DELIVERY' 時存在，紀錄在此站被一口氣卸貨變現的回收記錄 ID 陣列
+  revenueEarned?: number;                    // 僅 type === 'DELIVERY' 時存在，紀錄此交貨點交易所賺取的交易利潤 (台幣元)
 }
 ```
 
@@ -186,8 +195,98 @@ interface PlanStop {
 | `keywords` | `string[]` | 否 | `[]` | **比對關鍵字陣列** (用以協助 Gemini 影像辨識快速分類比對相似近義詞) |
 | `carbonReduced` | `number` | 否 | - | **每單位減碳效益 (公克/單位)** (回收1個計量單位該類別的可回收資源的減碳效益) |
 | `unit` | `string` | 否 | `'個'` | **數量計量單位** (自定義各類型可回收資源之數量單位，例如紙箱用「個」、寶特瓶用「瓶」、廚餘用「公升」、口罩用「片」等) |
+| `estimatedWeight` | `number` | 否 | `0.1` | **預估重量 (公斤/單位)** (基因演算法物流最佳化計算載重成本耗能的重要指標物) |
 
 *註：當資源梅克魚利用 AI 相機辨識出新分類，而該分類在目前主檔中不存在時，應用系統將自動學習並在 `masterData_resources` 中建立新的一筆防呆通用主檔。*
 
 ---
+
+## 6. 回收契約 (Recycle Contract)
+
+* **Firestore 集合：** `recycleContracts`
+* **主鍵：** `id` (自動生成的 Document ID)
+* **TypeScript 定義：** `RecycleContract`
+
+### 欄位與結構 (Schema Field Details)
+
+| 欄位名稱 (Field) | 資料類型 (Type) | 必填 | 預設值 | 中文標題與描述 |
+| :--- | :--- | :---: | :---: | :--- |
+| `id` | `string` | 是 | - | **唯一契約識別碼** (自動 generated) |
+| `creatorId` | `string` | 是 | - | **合約建立者 ID** (必須為該合約的資源勾引魟 ID，關聯 `users.id`) |
+| `status` | `ContractStatus` | 是 | `'Pending Signatures'` | **合約當前生命週期狀態**：`'Pending Signatures'` (審核中/待三方簽署)、`'Active'` (執行中/排程自動發單中)、`'Rejected'` (被拒絕)、`'Suspended'` (暫停執行)。|
+| `templateRecord` | `Map` (嵌套結構) | 是 | - | **回收記錄範本**：自動產生新的回收記錄時所採用的規格範本。詳細欄位見下文。 |
+| `schedule` | `Map` (嵌套結構) | 是 | - | **排程設定控制**：設定此定期契約自動產出之頻率與時間點。詳細欄位見下文。 |
+| `makerFishId` | `string` | 是 | - | **綁定之資源梅克魚 ID** (關聯 `users.id`) |
+| `goingHomeId` | `string` | 是 | - | **綁定之資源勾引魟 ID** (關聯 `users.id`) |
+| `recyclerId` | `string` | 是 | - | **綁定之資源瑞莎魺 ID** (關聯 `users.id`) |
+| `signatures` | `Map` (嵌套結構) | 是 | - | **三方簽署決策狀態**：包含 `makerFish`, `goingHome`, `recycler` 的簽屬決策。每個欄位狀態值為：`'Pending'`、`'Approved'`、`'Rejected'`。 |
+| `rejectionReason` | `string` | 否 | - | **合約退回/拒絕理由** (當任一方決策為 `'Rejected'` 時，必須填寫之原因細項)。 |
+| `sourceRecordId` | `string` | 否 | - | **來源回收記錄 ID** (若是由特定已完成歷史收運單預載而來，關聯 `recoveryRecords.id`，可用於排除首期重複產生之衝突)。 |
+| `lastGeneratedAt` | `Timestamp` | 否 | - | **上一次自動產出實體單之時間戳記**。 |
+| `nextRunAt` | `Timestamp` | 否 | - | **預估下一次自動產出實體單之時間戳記**。 |
+| `createdAt` | `Timestamp` | 是 | `serverTimestamp()` | **合約建立時間戳記**。 |
+| `updatedAt` | `Timestamp` | 是 | `serverTimestamp()` | **合約最後異動時間戳記** (樂觀鎖 / 並行控制重要比對時戳)。 |
+
+---
+
+### 子嵌套結構 (Nested Fields inside RecycleContract)
+
+#### 6A. 回收記錄範本 (`ContractTemplateRecord`)
+描述每次排程出發時，所應自動產生的回收記錄基本模型：
+```typescript
+interface ContractTemplateRecord {
+  materialCategory: string; // 資源大類 (如: "塑膠")
+  productCategory: string;  // 產品名稱 (如: "寶特瓶")
+  quantity: number;         // 預估產出數量
+  unit: string;             // 數量計量單位 (如: "個")
+}
+```
+
+#### 6B. 排程設定控制 (`ContractSchedule`)
+提供靈活的多維度時間排程設定：
+```typescript
+interface ContractSchedule {
+  type: 'daily' | 'weekly' | 'monthly'; // 排程頻率大類
+  daysOfWeek?: number[];                // 若為 "weekly"，列出星期幾 (0-6，0指週日)
+  dayOfMonth?: number;                  // 若為 "monthly"，指定月份中的幾號 (1-31)
+  time: string;                         // 出發時間 (HH:MM 格式，如 "09:00", "12:00")
+  scheduleText: string;                 // 人類易讀的排程描述文字 (如: "每週三跟五的 09:00")
+}
+```
+
+---
+
+### 子嵌套集合 (Sub-collections)
+
+#### 6C. 歷史合約歷程次集合 (`recycleContracts/{contractId}/history`)
+用於合約生命週期追溯，保存每一次關鍵操作之記錄：
+* **路徑**：`recycleContracts/{contractId}/history`
+* **主鍵**：自動生成之 Document ID
+
+| 欄位名稱 (Field) | 資料類型 (Type) | 必填 | 說明 |
+| :--- | :--- | :---: | :--- |
+| `id` | `string` | 是 | **歷程 ID** |
+| `timestamp` | `Timestamp` | 是 | **紀錄時戳** |
+| `operatorId` | `string` | 是 | **執行人 ID** (關聯 `users.id`) |
+| `operatorName` | `string` | 是 | **執行人姓名** |
+| `operatorRole` | `string` | 是 | **執行人當下簽核角色** (`MAKER_FISH` \| `GOING_HOME` \| `RECYCLER` \| `SYSTEM`) |
+| `action` | `string` | 是 | **具體異動行為** (`'CREATE_CONTRACT'`, `'SIGN_APPROVE'`, `'SIGN_REJECT'`, `'SUSPEND'`, `'REACTIVATE'`, `'RESUBMIT'`) |
+| `note` | `string` | 否 | **操作附言** (包含當事人拒絕原因、暫停原因、或重啟申請說明) |
+
+#### 6D. 留言板交流區次集合 (`recycleContracts/{contractId}/messages`)
+供三方使用者於簽核、執行時進行線上溝通、修正約定與即時對談：
+* **路徑**：`recycleContracts/{contractId}/messages`
+* **主鍵**：自動生成之 Document ID
+
+| 欄位名稱 (Field) | 資料類型 (Type) | 必填 | 說明 |
+| :--- | :--- | :---: | :--- |
+| `id` | `string` | 是 | **留言唯一 ID** |
+| `senderId` | `string` | 是 | **傳送者 ID** (關聯 `users.id`) |
+| `senderName` | `string` | 是 | **傳送者姓名** |
+| `senderRole` | `string` | 是 | **傳送者當下身分身分** |
+| `content` | `string` | 是 | **發送之訊息本文** |
+| `createdAt` | `Timestamp` | 是 | **訊息送出之時戳** |
+
+---
+
 *(End of DATA_ENTITIES.md)*

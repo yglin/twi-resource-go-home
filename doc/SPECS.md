@@ -192,4 +192,300 @@
    - 將幾何成果及預算交通工具完美包裝返回給勾引魟。此舉有效規避了雲端 API 連線的不確定性，向使用者展現出極具工藝質感且極高可用、不當機的完備防護網。
 
 ---
+
+## 肆、 本地前端自適應基因演算法規畫 (Local Genetic Algorithm for Multi-Destination Pickup-Delivery Routing)
+
+為了在不調用外部 AI 及避免昂貴 API 單元負載的條件下，實現極速、零費用且離線可用的物流調度，本系統於前端直接套用**自訂解碼器之基因演算法（Genetic Algorithm, GA）**。本架構將「取送貨路徑問題 (PDP)」與「具利潤旅行推銷員問題 (TSPP)」融合，透過自適應適應度權重，在短短數毫秒內在瀏覽器端算出兼顧「收購淨利潤最大化」與「載重耗能最小化」之黃金路線。
+
+### 1. 演算法可行性評估 (Feasibility & Performance Analysis)
+
+* **高度可行性**：
+  在典型的個人收運/收購情境下，單次計畫包含的站點總數通常在 $10 \sim 30$ 個之內（例如 $3 \sim 8$ 個梅克魚收貨點，以及 $5 \sim 15$ 個潛在的瑞莎魺收購點）。
+* **運行效能估算**：
+  在現代瀏覽器（V8 引擎）中，針對 30 個節點進行 100 代進化、每代 100 個個體，純 JavaScript 迴圈計算時間約在 $15 \sim 40 \text{ 毫秒}$。這代表我們可以做到**即時動態重新規劃 (Live Recalculation)**，當使用者在地圖上勾選或排除某個站點時，路由可在瞬間微調完畢，體驗極佳。
+
+---
+
+### 2. 資料結構定義與前置處理 (Data Schema & Pre-processing)
+
+#### A. 節點分類 (Node Representation)
+我們將所有參與規画的地理座標點統整建模為統一的節點格式 `GANode`：
+```typescript
+interface GANode {
+  id: string;                    // 唯一識別碼 (UserId 或 RecordId)
+  type: 'START' | 'PICKUP' | 'DELIVERY';
+  coordinates: { latitude: number; longitude: number };
+  
+  // PICKUP (收貨點 - 梅克魚歷史記錄)
+  materialCategory?: string;     // 如 C01 (塑膠)
+  productCategory?: string;      // 如 寶特瓶
+  quantity?: number;             // 數量
+  estimatedWeight?: number;      // 預估單個重量 (kg，來源自材質主檔)
+  
+  // DELIVERY (交貨點 - 瑞莎魺店面)
+  acceptedCategories?: string[]; // 瑞莎魺有收購的資材類別
+  prices?: Record<string, number>; // 瑞莎魺對各資材的每單位收購定價
+}
+```
+
+#### B. 配合此計畫之核心資料結構變更 (Core Data Schema Updates)
+為使基因演算法與實際儲存完美整合，我們對現有的持久化資料庫實體進行如下擴增與升級（皆保持優秀的向前與向後相容性）：
+
+1. **`PlanStop` 停靠站結構重構（支援雙重用途）：**
+   原本停靠站僅預置 `recordId` 且預設皆為梅克魚收貨點。現正式重構以支援「瑞莎魺交貨點」，可藉由 `type` 欄位與 `deliveredRecordIds` 來完美追蹤在該交貨點一次性變現卸貨的關聯歷史记录：
+   ```typescript
+   interface PlanStop {
+     id: string;                                // 站點唯一識別碼 (若為收貨則為 recordId，若為交貨則為 recyclerId)
+     type: 'PICKUP' | 'DELIVERY';               // 站點類型
+     recordId?: string;                         // 僅 type === 'PICKUP' 時存在，關聯歷史回收記錄ID
+     recyclerId?: string;                       // 僅 type === 'DELIVERY' 時存在，關聯瑞莎魺的使用者UID
+     arrivalTime: Timestamp;                    // 預估抵達時間
+     status: 'PENDING' | 'ARRIVED' | 'SKIPPED'; // 站點現場執行狀態：待處理 / 已確認執行 / 異常跳過
+     sortingOrder: number;                      // 排程物流排序數字標定 (由 1 開始累增)
+     deliveredRecordIds?: string[];             // 僅 type === 'DELIVERY' 時存在，紀錄於此站一次清空變現的回收記錄 ID 陣列
+     revenueEarned?: number;                    // 僅 type === 'DELIVERY' 時存在，紀錄於此瑞莎魺站點實收之現金總額
+   }
+   ```
+   * *相容性升級政策*：歷史產生的 `GoingHomePlan` 若不具 `type` 欄位，系統將保底預設其值為 `'PICKUP'`。
+
+2. **`GoingHomePlan` 計畫實體拓寬：**
+   為詳實記錄基因演算法動態最佳化的物流成效與利潤成效，計畫實體擴展 3 個統計指標，在完成優化時即寫入庫中供報表即時讀取：
+   - `totalDistance?: number;` // 整趟路線的基礎行車總距離 (公里 km)
+   - `totalLoadWeightedDistance?: number;` // 總體載重與路程的乘積成本指引 (kg * km)
+   - `totalRevenue?: number;` // 本趟計畫在瑞莎魺站點累計收購所獲得的總收入 (台幣元)
+
+3. **`MasterDataResource` (材質主檔) 新設耗能預估：**
+   提供高精度 $\alpha \times C_{\text{load}}$ 適應度運算。
+   - `estimatedWeight?: number;` // 預估單個物理單位之重量 (kg/個 或 kg/公升 等，為可選填屬性，未設定則系統內部預設為 0.1 kg 保底)
+
+---
+
+#### C. 距離矩陣預計算 (Distance Matrix Pre-computation)
+為避免在 GA 繁衍演化（數萬次距離計算）中呼叫耗時且昂貴的 Google Maps Distance Matrix API，系統在 GA 啟動第一步，使用高效率的 **Haversine 歐幾里德球面公式**，前置算好一個 $N \times N$ 的距離對照表：
+$$\text{DistanceMatrix}[i][j] = \text{haversine}(Node_i, Node_j)$$
+* **設計決策**：GA 擺脫外部相依，全速在記憶體內執行。當 GA 優化出最優之「節點數組與先後順序」後，才**單次呼叫 Google Maps Directions API** 繪製該最終實體路徑與取得精確導航時間，精省 99% 的 API 成本。
+
+---
+
+### 3. 染色體編碼與自律解碼器 (Chromosome & Strict Decoder Logic)
+
+#### A. 排列編碼 (Permutation Encoding)
+* **基因序列**：
+  長度為 $M + K$ 的一維陣列。
+  - $M$：所有的收貨點（`PICKUP`）。
+  - $K$：所有在有效半徑內符合收購品類要求的交貨點（`DELIVERY`）。
+  - 起始點（`START`）因固定排在第一位，不計入染色體中。
+* **範例染色體**：`[P1, D2, P3, D1, P2]` （其中 P 為梅克魚，D 為瑞莎魺）
+
+#### B. 解碼器運作程序 (Decoder Pipeline)
+解碼器由左至右解讀染色體，其最高原則是 **「不合法路徑自動靜態過濾，不走冤枉路」**。
+
+```typescript
+function decodeChromosome(chromosome: string[], startNode: GANode): GARoute {
+  const actualRoute: GANode[] = [startNode];
+  const currentInventory: Map<string, { qty: number; weight: number; material: string }> = new Map();
+  let currentLoad = 0;
+  let totalRevenue = 0;
+
+  // 1. 優先確保所有的 PICKUP 都會去（這是核心義務）
+  for (const nodeId of chromosome) {
+    const node = findNodeById(nodeId);
+    
+    if (node.type === 'PICKUP') {
+      // 動作：直接前往收貨，將貨物收入車載清單
+      actualRoute.push(node);
+      const weight = (node.quantity || 0) * (node.estimatedWeight || 0.1);
+      currentInventory.set(node.id, {
+        qty: node.quantity || 0,
+        weight: weight,
+        material: `${node.materialCategory}_${node.productCategory}`
+      });
+      currentLoad += weight;
+    } 
+    else if (node.type === 'DELIVERY') {
+      // 2. 對於交貨點，進行「有貨才交」的智能過濾
+      let hasDealt = false;
+      let profitEarned = 0;
+
+      // 檢查目前車上庫存，有沒有這家瑞莎魺 D 收之資材
+      for (const [pickupId, item] of currentInventory.entries()) {
+        const key = item.material; // 例如 "塑膠_寶特瓶"
+        if (node.prices && node.prices[key] !== undefined) {
+          // 計算該項變現利潤
+          const unitPrice = node.prices[key];
+          profitEarned += item.qty * unitPrice;
+          
+          // 標記已成功交貨，自車載清單卸重
+          currentLoad -= item.weight;
+          currentInventory.delete(pickupId);
+          hasDealt = true;
+        }
+      }
+
+      if (hasDealt) {
+        // 情況 A：真的有資材可以來這裡賣錢 -> 將此瑞莎魺加入實際行經路線，並入帳利潤
+        actualRoute.push(node);
+        totalRevenue += profitEarned;
+      }
+      // 情況 B：車上根本沒資源可以交給這家瑞莎魺，或是好貨早就被前面的瑞莎魺買走了 -> 跳過 (Skip)！
+      // 如此一來，路徑不會多出多餘、無效益的交貨點
+    }
+  }
+
+  // 3. 收尾：若到最後車上仍有未清資材，不額外加站，返回預備倉庫 / 終點
+  return {
+    nodes: actualRoute,
+    finalInventory: currentInventory, // 可能有殘餘（代表無瑞莎魺收購，需勾引魟自行回據點處理）
+    totalRevenue,
+    finalLoad: currentLoad
+  };
+}
+```
+
+---
+
+### 4. 適應度函數設計與多目標權衡 (Fitness & Multi-Objective Balance)
+
+適應度目標在於：**「淨利潤最大化、載重耗能最小化、路線長度最短化」**。
+
+$$\text{Fitness} = \text{TotalRevenue} - \left( \alpha \times \text{TotalLoadWeightedDistance} \right) - \left( \beta \times \text{TotalDistance} \right) - \text{Penalty}$$
+
+#### A. 參數與變數定義：
+1. **收購總收益 (TotalRevenue)**：解碼過程中在中途站點成功售予瑞莎魺的台幣元總額。
+2. **總載重路程 (TotalLoadWeightedDistance, $C_{\text{load}}$)**：
+   車輛在站點 $i$ 到 $j$ 之間行駛時，有乘載貨物的額外負重成本：
+   $$C_{\text{load}} = \sum \left( \text{CurrentLoad}_{ij} \times \text{Distance}_{ij} \right)$$
+   * $\alpha$ 為**載重處罰係數（預設 0.2）**。當載著 20 公斤重物每跑 1 公里，將扣除 $20 \times 1 \times 0.2 = 4$ 分。促使演算法將「重物收貨點」與其「瑞莎魺交貨點」在排程上極度拉近，體現精確的先收先賣。
+3. **基礎空行總距離 (TotalDistance, $D_{\text{base}}$)**：
+   不論車載多重，行駛的總路程本身即代表時間與油耗：
+   $$D_{\text{base}} = \sum \text{Distance}_{ij}$$
+   * $\beta$ 為**公里耗損成本（預設 5.0，表示每公里基本代價為 5 元）**。避免路徑過度繞遠路，即是旅行推銷員問題 (TSP) 的核心約束。
+4. **超載懲罰 (Penalty)**：
+   根據勾引魟設定之交通工具限制其載重上限（如機車 50kg, 貨車 1000kg），若 `finalLoad` 的歷史高點超出上限，適應度直接扣除極大值。
+
+---
+
+### 5. 演化迭代細節 (GA Operators)
+
+* **選取 (Selection)**：
+  採用**競賽選拔法 (Tournament Selection, $k=3$)**。每次隨機抓 3 個個體，挑選最高適應度者進入交配池，可保持極佳局部壓迫收斂力。
+* **交配 (Crossover)**：
+  採用**順序交配 (Order Crossover, OX)**，百分之百避免產生重複節點，完美繼承好路徑的先後排序片段。
+* **突變 (Mutation)**：
+  採用 30% 機會的**倒轉突變 (Inversion Mutation)**，隨機反轉染色體中一部分，此舉在路由最佳化能高機率打破局部最佳解 (Local Optima)。
+* **精英保留 (Elitism)**：
+  每代前 10% 最傑出的路線，不進行交配與突變，完美複製至下一代，防止最優解被意外污染破壞。
+* **提前收斂 Heuristic**：
+  若連續 25 代最優秀評分無任何增益，或達最高 100 代上限，演化立即安全停止，向前端返還最優解。
+
+---
+
+## 伍、 回收契約系統規格與邊界處理流程 (Recycle Contract Specification & Boundary Handling)
+
+「回收契約」是本系統中連結 **資源梅克魚**、**資源勾引魟**、與 **資源瑞莎魺** 三方，建立定期且具法律/協定約束力的核心業務元件。本章節詳盡規整其核心資料 Schema、自動派單與時序處理、以及在真實複雜環境下的「例外與邊界處理流程」。
+
+### 1. 核心資料模型規格 (Core Database Schema for `recycleContracts`)
+
+為確保 Firestore 中契約實體的高可擴充性、三方身分確權、與生命週期管理，回收契約獨立存儲於 `recycleContracts` 集合：
+
+#### A. `recycleContracts` (主要集合)
+* `id` (`String`): 唯一合約識別碼。
+* `creatorId` (`String`): 合約建立者 ID，必須為該合約的資源勾引魟。
+* `status` (`String`): 合約當前生命週期狀態，列舉值包括：
+  - `'Pending Signatures'` (審核中/待三方簽署)
+  - `'Active'` (執行中/排程自動派單中)
+  - `'Rejected'` (被拒絕)
+  - `'Suspended'` (暫停執行)
+* `templateRecord` (`Map`): 自動產生回收記錄時的數據樣板（記錄範本）：
+  - `materialCategory` (`String`): 回收資源大類
+  - `productCategory` (`String`): 回收資源細項產品
+  - `quantity` (`Number`): 預估產出數量
+  - `unit` (`String`): 回收數量單位 (如 瓶, 個, 公斤)
+* `schedule` (`Map`): 排程設定控制參數：
+  - `type` (`String`): 排程頻率大類 (每天, 每週, 每月)
+  - `daysOfWeek` (`Array<Number>`): 若為每週，指明星期幾 (0-6)
+  - `dayOfMonth` (`Number`): 若為每月，指明幾號 (1-31)
+  - `time` (`String`): 精確自動產出小時與分鐘 (格式 "HH:MM")
+  - `scheduleText` (`String`): 易懂之人類排程描述 (如 "每週一與五 09:00")
+* `makerFishId` (`String`): 與此契約綁定之資源梅克魚使用者 ID。
+* `goingHomeId` (`String`): 與此契約綁定之資源勾引魟使用者 ID。
+* `recyclerId` (`String`): 與此契約綁定之資源瑞莎魺使用者 ID。
+* `signatures` (`Map`): 保存三方目前之個別簽署決策狀態：
+  - `makerFish` (`String`): `'Pending'` | `'Approved'` | `'Rejected'`
+  - `goingHome` (`String`): `'Pending'` | `'Approved'` | `'Rejected'` (因由其發起，預設必為 `'Approved'`)
+  - `recycler` (`String`): `'Pending'` | `'Approved'` | `'Rejected'`
+* `rejectionReason` (`String`): 當有任一方拒絕簽字時，所填寫的「退回/拒絕理由」，否則為空。
+* `sourceRecordId` (`String`): 可選。若本合約是由某一筆歷史「已完成」之回收記錄跳轉而來預載的，此欄位記錄該回收記錄 ID。
+* `lastGeneratedAt` (`Timestamp`): 上一次根據此合約排程，自動產出新的實體回收記錄的時間點。
+* `nextRunAt` (`Timestamp`): 計算出的下一次預定自動產出回收記錄之時間點。
+* `createdAt` (`Timestamp`): 合約創建時間。
+* `updatedAt` (`Timestamp`): 合約最後異動時間。
+
+#### B. `recycleContracts/{contractId}/history` (歷史歷程次集合 - Sub-collection)
+用於高密度稽核與合約生命週期溯源，不隨編輯而抹除：
+* `id` (`String`): 歷程 ID。
+* `timestamp` (`Timestamp`): 紀錄時戳。
+* `operatorId` (`String`): 執行動作的使用者 ID。
+* `operatorName` (`String`): 執行動作的使用者顯示名稱。
+* `operatorRole` (`String`): 執行時的對應角色 (`MAKER_FISH` | `GOING_HOME` | `RECYCLER`)。
+* `action` (`String`): 行為描述 (例: `'CREATE_CONTRACT'`, `'SIGN_APPROVE'`, `'SIGN_REJECT'`, `'SUSPEND'`, `'REACTIVATE'`, `'RESUBMIT'`)。
+* `note` (`String`): 操作備註、拒絕理由或暫停附言。
+
+#### C. `recycleContracts/{contractId}/messages` (留言板協同對話次集合)
+* `id` (`String`): 留言 ID。
+* `senderId` (`String`): 留言者 ID。
+* `senderName` (`String`): 留言者姓名。
+* `senderRole` (`String`): 留言者當下角色。
+* `content` (`String`): 對對話內容。
+* `createdAt` (`Timestamp`): 留言送出時間。
+
+---
+
+### 2. 關於「例外與邊界處理流程」 (Edge Cases & Exception Handling Processes)
+
+在真實的運行中，實體契約常伴隨時間異動、網絡延遲、以及人為因素。為確保軟體展現出高工藝水準、不當機且資料流無暇，本系統設計並建立以下四個例外與邊界處理流程：
+
+#### A. 避免「首期自動產生」重複衝突 (Duplicate Execution Exclusion)
+* **面臨問題：** 
+  當資源勾引魟是從一筆「剛剛完成的回收記錄（歷史交貨單）」點選「新增契約」而跳轉過來時，那筆已完結的歷史單事實上已經代表了當前的第一期回收實體。此時若當前時間剛好符合排程設定（例如：合約設定為每週二 10:00，且合約在週二 10:05 三方完成簽核激活），如果直接交由 Scheduler 執行判定，可能會在合約激活之幾秒內立馬又重複自動生成一筆一模一樣的實體派單，造成「同天雙重收取」的嚴重派單衝突。
+* **解法機制：**
+  1. **記錄關聯化：** 合約保存 `sourceRecordId` 引證。
+  2. **推遲策略 (Time-Postponement Heuristics)：** 
+     於合約三方簽核全部通過、狀態轉為 `Active` 的當下，系統不將 `lastGeneratedAt` 留空。相反地，系統會將 `lastGeneratedAt` 預設初始化為**「該來源完成記錄的完結時間 (completionTime)」**，或是將 `nextRunAt` 預先向後推遲計算至**「合約生效日之後的下一個完整排程週期 $T_{\text{next}}$」**。
+  3. **Scheduler 嚴格不等式：** 定期排程產生器在每次工作時，會嚴格確認每一次執行時間必須滿足條件 $T_{\text{next}} > T_{\text{activation_time}}$ 且 $T_{\text{next}} > T_{\text{source_record_completion_time}}$，以此完美徹底杜絕首期多重生成的派單漏洞。
+
+#### B. 參與者帳號變更或角色/指引資格吊銷降級 (User Downgrade & Revocation Protection)
+* **面臨問題：** 
+  一份合約處於 `Active` (執行中)。然而，在某天定期產生新單前，該「資源瑞莎魺」因個人店鋪調整，在系統中關閉了自己對「塑膠-寶特瓶」的收購指引（回收指引失效），或其中一方使用者至設定頁將特定角色關閉。
+* **解法機制：**
+  - **前置校驗管線 (Pre-Evaluation Pipeline)**：
+    定期排程產生器執行自動派單前，系統會檢核以下三項相容性：
+    1. 三位綁定使用者的系統帳號均仍存在，且未停用。
+    2. 三名使用者依然擁有當初繫結合約之角色身分（`roles` 依然包含相應角色）。
+    3. 資源瑞莎魺的目前收購項目中，依舊包含此合約 `templateRecord` 的資材分類。
+  - **異常降級處理 (Graceful Interruption Heuristics)**：
+    若上述任一校驗失敗，系統一律**不產出**新的回收記錄。系統將自動將該合約的狀態由 `Active` 被動降級轉移為 `Suspended` (暫停狀態)，並自動於該合約的 `history` 發送警示：`[系統警示] 因參與者之角色不符或回收指引相容性變更，本合約由系統自動暫停執行。` 同步推送通知予三方使用者。
+
+#### C. 多人同時審查/編輯之狀態並行衝突 (Concurrency Race Conditions)
+* **面臨問題：** 
+  當資源梅克魚在看網頁並點按「同意簽署」之同一秒鐘，發起人（資源勾引魟）剛好在另一端的編輯器頁面點選「修改契約條款並重新提交」。如果處理不當，可能會造成梅克魚的「同意」事件，意外覆蓋或沿用到已經被勾引魟微調過的新版條款中。
+* **解法機制：**
+  - 使用 Firestore **事務（Transaction）** 或 **樂觀鎖機制（Optimistic Version Lock）** 進行寫入：
+    1. 任何使用者執行「簽署（同意或拒絕）」或「修改（重新提交）」操作前，會先比對合約目前文件中的 `updatedAt` 或者是 `version` 欄位。
+    2. 勾引魟一旦對合約執行「重新提交(Edit & Resubmit)」，在 Transaction 內，系統除了寫入新修改的規格與排程外，會**強制重置三方所有人的 signatures 状态**（包括原本已簽署同意的人，亦全數重歸為 `'Pending'`），並將 `updatedAt` 刷新。
+    3. 如果在送出前偵測到 `updatedAt` 已被變更，系統會流暢打回並彈窗提示：`【提示】此合約內容剛剛已被其他成員變更，請重新整理並閱讀新版內容後再進行簽核。`
+
+#### D. 「暫停」與「重啟」之高密度軌跡回寫 (Atomic Event Record Integration)
+* **面臨問題：** 
+  任何人皆可因故執行「暫停」，或任何人皆可發起「重啟（需三方重新同意）」。若無高密度的歷史軌跡，三方很容易陷入猜疑是誰隨意暫停或惡意反悔重啟。
+* **解法機制：**
+  - **原子化包裹更新 (Atomic Batch Updates)**：
+    當使用者按下「暫停」或「重啟」並選填理由後，系統利用一個 Firestore 寫入事务或 `writeBatch` 執行以下動作，確保資料一致性：
+    1. **合約本體變更**：更新狀態（若為重啟，則 signatures 重設為 `Pending`，原發起重啟者可自動設為 `Approved`）。
+    2. **寫入稽核歷史**：在 `history` 子集合寫入一筆詳實的 Audit 記錄，記錄精確時間、姓名、角色、以及當下寫下的附言理由。
+    3. **留言版提醒**：在合約的 `messages` 留言集合中，同步非同步新增一則由 **`System` 身份** 產出的置頂系統對話訊息（例：`「[系統廣播] 資源瑞莎魺 瑞莎阿明 已於 14:32 暫停了此合約，原因：『店面歲修兩週』。」`）。
+
+---
+
 *(End of SPECS.md)*
+

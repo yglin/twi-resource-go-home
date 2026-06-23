@@ -37,7 +37,7 @@ export default function AuthPage() {
         displayName: user.displayName || user.email?.split('@')[0] || '使用者',
         email: user.email || '',
         photoURL: user.photoURL || '',
-        roles: [], // No roles initially
+        roles: ['MAKER_FISH'], // Maker fish is default
         createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'users', user.uid), initialProfile);
@@ -54,12 +54,13 @@ export default function AuthPage() {
         }, { merge: true });
       }
 
-      if (!profile.roles || profile.roles.length === 0) {
+      const isIncomplete = !profile.displayName || !profile.address || !profile.phoneNumber || !profile.coordinates;
+      if (!profile.roles || profile.roles.length === 0 || isIncomplete) {
         navigate('/setup');
       } else {
         toast.success(`歡迎回來，${profile.displayName || user.displayName || '使用者'}`);
         // Redirect based on role
-        if (profile.roles.includes('GOING_HOME')) navigate('/going-home');
+        if (profile.roles.includes('GOING_HOME') || profile.roles.includes('RECYCLER')) navigate('/going-home');
         else navigate('/maker');
       }
     }
@@ -83,7 +84,7 @@ export default function AuthPage() {
     } catch (error: any) {
       console.error(error);
       let msg = '認證失敗';
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         msg = '帳號或密碼錯誤';
       } else if (error.code === 'auth/email-already-in-use') {
         msg = '此 Email 已被使用';

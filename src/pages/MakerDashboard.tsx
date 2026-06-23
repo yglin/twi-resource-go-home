@@ -7,7 +7,7 @@ import { RecoveryRecord, RecordStatus } from '../types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Plus, Fish, History, Bell, LogOut, Package, Shield } from 'lucide-react';
+import { Plus, Fish, History, Bell, LogOut, Package, Shield, FileText } from 'lucide-react';
 
 // Sub-pages/Components
 import RecordList from './maker/RecordList';
@@ -22,26 +22,30 @@ export default function MakerDashboard() {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Sidebar - Mobile bottom nav, Desktop side rail */}
-      <aside className="w-20 md:w-64 bg-slate-900 text-white flex flex-col items-center md:items-start p-4 md:p-6 transition-all">
+      <aside className="w-20 md:w-64 bg-slate-900 text-white flex flex-col items-center md:items-start p-4 md:p-6 transition-all shrink-0 overflow-y-auto min-h-0 custom-sidebar">
         <div 
-          className={`flex items-center gap-3 font-bold text-xl mb-12 overflow-visible transition-all ${profile?.roles?.includes('GOING_HOME' as any) ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}`}
+          className={`flex items-center gap-3 font-bold text-xl mb-6 md:mb-8 overflow-visible transition-all ${(profile?.roles?.includes('GOING_HOME' as any) || profile?.roles?.includes('RECYCLER' as any)) ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}`}
           onClick={() => {
-            if (profile?.roles?.includes('GOING_HOME' as any)) {
+            if (profile?.roles?.includes('GOING_HOME' as any) || profile?.roles?.includes('RECYCLER' as any)) {
               navigate('/going-home');
             }
           }}
-          title={profile?.roles?.includes('GOING_HOME' as any) ? "切換至勾引魟工作區" : ""}
+          title={
+            profile?.roles?.includes('GOING_HOME' as any) 
+              ? "切換至勾引魟工作區" 
+              : (profile?.roles?.includes('RECYCLER' as any) ? "切換至瑞莎魺工作區" : "")
+          }
         >
           <div className="relative flex items-center justify-center p-2 bg-cyan-500/10 rounded-xl border border-cyan-500/20 shrink-0">
             <Fish className="w-8 h-8 text-cyan-400 shrink-0" />
-            {profile?.roles?.includes('GOING_HOME' as any) && (
+            {(profile?.roles?.includes('GOING_HOME' as any) || profile?.roles?.includes('RECYCLER' as any)) && (
               <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-slate-900" />
             )}
           </div>
           <span className="hidden md:inline whitespace-nowrap">梅克魚空間</span>
         </div>
 
-        <nav className="flex-1 space-y-4 w-full">
+        <nav className="flex-1 space-y-2 w-full">
           <NavItem 
             icon={<History />} 
             label="收運記錄" 
@@ -54,6 +58,12 @@ export default function MakerDashboard() {
             onClick={() => navigate('/maker/notifications')} 
             active={window.location.pathname.includes('/notifications')}
           />
+          <NavItem 
+            icon={<FileText />} 
+            label="定期契約" 
+            onClick={() => navigate('/recycleContract')} 
+            active={window.location.pathname.startsWith('/recycleContract')}
+          />
           {isAdmin && (
             <NavItem 
               icon={<Shield />} 
@@ -64,7 +74,7 @@ export default function MakerDashboard() {
           )}
         </nav>
 
-        <div className="w-full pt-6 border-t border-slate-800 space-y-4">
+        <div className="w-full pt-4 border-t border-slate-800 space-y-2 mt-4">
           <div className="flex items-center gap-3 px-2 overflow-hidden cursor-pointer hover:bg-slate-800/50 rounded-xl py-1 transition-colors" onClick={() => navigate('/setup')}>
             <Avatar className="h-10 w-10 ring-2 ring-cyan-500/20">
               <AvatarImage src={profile?.photoURL} />
@@ -77,7 +87,7 @@ export default function MakerDashboard() {
           </div>
           <button 
             onClick={() => auth.signOut()}
-            className="w-full flex items-center justify-center md:justify-start gap-3 px-4 py-3 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors"
+            className="w-full flex items-center justify-center md:justify-start gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-slate-400 transition-colors"
           >
             <LogOut className="w-5 h-5" />
             <span className="hidden md:inline">登出</span>

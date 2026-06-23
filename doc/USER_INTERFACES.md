@@ -22,6 +22,9 @@
 | **`/going-home/requests`**| 勾引魟限制 | `AvailableRequests` | 指名委託魟魚請求列表：詳細地址地圖展示、一鍵同意收運、退單並回填不便收取理由。 |
 | **`/going-home/plan`** | 勾引魟限制 | `ActivePlan` | 點對點智慧航線執行面板：AI/演算法路徑拓撲推薦、一鍵核准、當場已上車 / 跳過節點、一鍵送抵處理站。 |
 | **`/going-home/profile`**| 勾引魟限制 | `RayProfile` | 勾引魟專屬回收物品與專屬整理期望微調、地址更改設定。 |
+| **`/recycleContract`** | 登入者 | `ContractDashboard` | 回收契約列表：按參與角色（梅克魚/勾引魟/瑞莎魺）分類展示契約卡片、建立契約入口（限勾引魟）。 |
+| **`/newRecycleContract`** | 勾引魟限制 | `NewRecycleContract` | 建立或微調編輯回收契約：包含回收記錄範本、排程控制、與瑞莎魺相容性下拉篩選。 |
+| **`/recycleContract/:id`** | 契約成員限制 | `ContractDetails` | 三方簽署審批控制台、高密度歷史歷程軌跡板、留言板交流區、暫停與重啟操作按鈕。 |
 | **`/admin`** | 管理員限制 | `AdminDashboard` | 系統主資料管理後台：統計看版與 `masterData_resources` 的 CRUD 操作。 |
 
 ---
@@ -74,6 +77,33 @@
 * **模擬物流地圖 (Interactive Polyline Map Box)：**
   - 計劃內包含 AI 依承載體積智慧預測出來的「最省碳交通工具」（例如：低碳重卡、電動三輪）。地圖區域流暢繪製出停靠順序線路（拓撲折線）。
 
+### 5. 回收契約主控儀表板 (`ContractDashboard`)
+* **三方角色分頁視窗 (Category-Based Contract Tabs)：**
+  - 設計有三個平行分頁（Tabs），將與當前登入者相關的契約依使用者於合約中的角色分類展出：
+    1. **「我產出的契約 (資源梅克魚)」**
+    2. **「我載運的契約 (資源勾引魟)」**
+    3. **「我收購的契約 (資源瑞莎魺)」**
+  - 使用者可以根據其角色在不同分頁流暢穿梭。
+* **分區合約狀態卡片 (Split Status Grid) & 新增契約鈕：**
+  - 每個分頁下，依合約狀態進行垂直卡片式排版。
+  - 當且僅當當前登入使用者具有 **資源勾引魟** 權限時，介面右上角與畫面中空狀態時將高亮渲染出「新增契約 (Add Contract)」的海洋靛藍按鈕。
+
+### 6. 建立/修改定期回收契約頁 (`NewRecycleContract`)
+* **三段式卡片式表單 Layout (Form Section Cards)：**
+  - **1. 回收紀錄範本區**：一鍵引用或手動鍵入。提供滑動式的數量阻尼計量器與品類下拉選單。若是由已完成的實體收運單跳轉而來，此區卡片將伴隨精美閃動特效，無縫預載所有預設資材與預計數量，完美防呆。
+  - **2. 排程控制設定區**：直覺的時間選擇器 (HH:MM) 搭配單選按鈕（每日 / 每週 / 每月）。當按下「每週」時，彈射出七天 (0-6) 選擇器；當按下「每月」時，展開 1-31 日精緻網格，幫助用戶直覺式排程。
+  - **3. 聯袂三方角色綁定區**：
+    * 資源梅克魚：自動渲染系統中所有登入之梅克魚角色。
+    * 資源勾引魟：系統唯讀鎖死，直接顯示當前登入魟魚名稱及精緻頭像。
+    * 資源瑞莎魺：**「自適應相容指引篩選器」**。當用戶在上端設定完物資類別，系統將會在後台利用交叉聯集，動態篩選出回收項目包含此物資的「資源瑞莎魺」，保障派單不衝突。不符指引之瑞莎魺在下拉選單中將直接灰化，並顯示警示小字（例：『瑞莎阿明未收購此項目』）。
+
+### 7. 契約簽署與生命週期控制台 (`ContractDetails`)
+* **三方聯手卡片式簽章卡 (Triple Status Checker)：**
+  - 水平排列三張簽字卡（梅克魚、勾引魟、瑞莎魺）。
+  - 對於當事人之簽署，系統高亮「簽核同意」與「退回拒絕」雙按鈕：
+    * 點擊同意時，彈出「客製化角色自律誓約二次確認」彈窗（包含其角色應遵從的配送與秤重時限警語）。
+    * 點擊拒絕時，彈出「反饋與退件對話框 (Rejection Dialogue)」，要求強制填入具體退件理由。
+
 ---
 
 ## 四、 核心客製化 UI 元件 (Interactive Design Systems)
@@ -81,12 +111,18 @@
 我們大量避免使用未經微調的元件。系統採用 Tailwind CSS 精巧整合了以下高互動 UI 單元：
 
 ### 1. 狀態生命週期 Badge (StatusBadge)
-根據 `RecordStatus` 狀態機，精緻映射不同的字體色、背景色與邊界色：
-* `JUST_BORN`: 軟萌嫩草綠 (`bg-emerald-50 text-emerald-700 border-emerald-200`) ── 象徵剛誕生的物資，充滿新生期盼。
-* `WAITING_FOR_COLLECTION`: 深曜海洋藍 (`bg-sky-50 text-sky-700 border-sky-200`) ── 等待點收承接。
-* `COLLECTION_CONFIRMED`: 暗夜尊爵紫 (`bg-violet-50 text-violet-700 border-violet-200`) ── 計畫已妥，安心排程。
-* `PICKED_UP`: 卡其物流橘 (`bg-amber-50 text-amber-700 border-amber-200`) ── 正在出發運送途中。
-* `COMPLETED`: 圓滿極光綠 (`bg-green-100 text-green-800 border-green-300`) ── 給予使用者最高光之回饋。
+根據狀態機，精緻映射不同的字體色、背景色與邊界色：
+* **單次回收記錄狀態 (`RecordStatus`)**：
+  - `JUST_BORN`: 軟萌嫩草綠 (`bg-emerald-50 text-emerald-700 border-emerald-200`) ── 象徵剛誕生的物資，充滿新生期盼。
+  - `WAITING_FOR_COLLECTION`: 深曜海洋藍 (`bg-sky-50 text-sky-700 border-sky-200`) ── 等待點收承接。
+  - `COLLECTION_CONFIRMED`: 暗夜尊爵紫 (`bg-violet-50 text-violet-700 border-violet-200`) ── 計畫已妥，安心排程。
+  - `PICKED_UP`: 卡其物流橘 (`bg-amber-50 text-amber-700 border-amber-200`) ── 正在出發運送途中。
+  - `COMPLETED`: 圓滿極光綠 (`bg-green-100 text-green-800 border-green-300`) ── 給予使用者最高光之回饋。
+* **長期回收契約狀態 (`ContractStatus`)**：
+  - `Pending Signatures`: 鵝黃審查橙 (`bg-amber-50 text-amber-700 border-amber-200`) ── 待三方共同審閱簽字。
+  - `Active`: 湛藍運行洋 (`bg-blue-50 text-blue-700 border-blue-200`) ── 啟用定期排程、循環履約中。
+  - `Rejected`: 珊瑚烈焰紅 (`bg-rose-50 text-rose-700 border-rose-200`) ── 因故退回拒絕，高亮標明退件理由。
+  - `Suspended`: 煙雨寂境灰 (`bg-slate-100 text-slate-700 border-slate-300`) ── 臨時在線中斷暫停，排程生成器冬眠。
 
 ### 2. 無法收取退單提示組 (UnableCollectModal)
 當勾引魟因不可抗因素取消該次特定託付時，為維持梅克魚與魟魚之間的誠信感，此提示組整合了：
@@ -99,6 +135,19 @@
 * 用戶可點擊「＋ 追加可用時段」。
 * 彈出小型的星期天數選單（0-6 周日到周六）與兩端精確時間阻尼器。
 * 每行配備微型垃圾桶圖標，點擊時伴隨彈跳，提供毫無延遲、無壓力的快感操作。
+
+### 4. 契約高密度歷史稽核歷程牆 (ContractHistoryLogger)
+* **視覺呈現 (High-Density Linear Timeline)**：
+  - 垂直極窄的永續靛藍極細導引線，依降序（最新動作在上）排版。
+  - 每個歷程圓點依據使用者角色顯示前綴 icon（梅克魚 🐟、勾引魟 ✈️、瑞莎魺 🪸、系統自動 ⚙️）。
+  - 對於操作者之姓名、時戳 (由 JetBrains Mono 精確顯示至秒) 進行科學高對比渲染。
+  - 若動作伴隨了具體附言（例如暫停理由：『這週我因出差無法打包...』），該段備註將以極致高雅的斜體灰字（`italic text-slate-500`）伴隨淡灰色底板區塊呈現，資訊完整且絕無繁雜。
+
+### 5. 三方協同對話留言板 (ContractChatConsole)
+* **互動通訊架構 (Tri-Party Instant Chat)**：
+  - 為此合約綁定三方的專屬沙盒討論區，以精緻的氣泡式卡片展示。
+  - 使用者在下方輸入文字後點擊送出，泡泡呈現對應的身分高光。
+  - 每次收到新的對話時，氣泡使用 Framer Motion 之 `y: [10, 0], opacity: [0, 1]` 進行舒緩滑動升起，給予極佳的文字履約協調體感。
 
 ---
 
