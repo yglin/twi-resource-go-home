@@ -17,6 +17,7 @@ import ProfileSetup from './pages/ProfileSetup';
 import Unauthorized from './pages/Unauthorized';
 import MakerScenarios from './pages/MakerScenarios';
 import RayScenarios from './pages/RayScenarios';
+import OpenForAll from './pages/OpenForAll';
 
 // Recycle Contract Pages
 import ContractDashboard from './pages/contract/ContractDashboard';
@@ -170,6 +171,7 @@ export default function App() {
             <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="/maker-scenarios" element={<MakerScenarios />} />
             <Route path="/ray-scenarios" element={<RayScenarios />} />
+            <Route path="/openForAll" element={<OpenForAll />} />
             
             <Route path="/setup" element={
               <ProtectedRoute>
@@ -202,7 +204,7 @@ export default function App() {
               </ProtectedRoute>
             } />
             <Route path="/newRecycleContract" element={
-              <ProtectedRoute roles={['GOING_HOME']}>
+              <ProtectedRoute>
                 <NewRecycleContract />
               </ProtectedRoute>
             } />

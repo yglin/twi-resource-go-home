@@ -7,7 +7,7 @@ import { RecoveryRecord, RecordStatus } from '../types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Plus, Fish, History, Bell, LogOut, Package, Shield, FileText } from 'lucide-react';
+import { Plus, Fish, History, Bell, LogOut, Package, Shield, FileText, Globe } from 'lucide-react';
 
 // Sub-pages/Components
 import RecordList from './maker/RecordList';
@@ -63,6 +63,12 @@ export default function MakerDashboard() {
             label="定期契約" 
             onClick={() => navigate('/recycleContract')} 
             active={window.location.pathname.startsWith('/recycleContract')}
+          />
+          <NavItem 
+            icon={<Globe />} 
+            label="公開徵收" 
+            onClick={() => navigate('/openForAll')} 
+            active={window.location.pathname === '/openForAll'} 
           />
           {isAdmin && (
             <NavItem 

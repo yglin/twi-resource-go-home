@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../../firebase';
 import { doc, onSnapshot, query, collection, where, getDocs, GeoPoint } from 'firebase/firestore';
 import { useAuth } from '../../App';
-import { RecoveryRecord, UserProfile, RecordStatus, AppNotification } from '../../types';
-import { updateDocument } from '../../services/firestoreService';
+import { RecoveryRecord, UserProfile, RecordStatus, AppNotification, MasterDataResource } from '../../types';
+import { updateDocument, listDocuments } from '../../services/firestoreService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,7 @@ import {
   DialogDescription, 
   DialogFooter 
 } from '@/components/ui/dialog';
-import { ArrowLeft, MapPin, Clock, Star, Navigation, CheckCircle2, Package, Loader2, Bell, X, AlertTriangle, Coins } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, Star, Navigation, CheckCircle2, Package, Loader2, Bell, X, AlertTriangle, Coins, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 
@@ -40,6 +40,25 @@ export default function RecordDetails() {
   const [selectedRayId, setSelectedRayId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [confirmingRay, setConfirmingRay] = useState<UserProfile | null>(null);
+  const [masterData, setMasterData] = useState<MasterDataResource[]>([]);
+  const [showPriceWarning, setShowPriceWarning] = useState(false);
+
+  const calculateEstimate = (rec: RecoveryRecord | null, masterList: MasterDataResource[]) => {
+    try {
+      if (!rec || !masterList) return 0;
+      const match = masterList.find(
+        m => m.material.trim().toLowerCase() === rec.materialCategory?.trim().toLowerCase() &&
+             m.product.trim().toLowerCase() === rec.productCategory?.trim().toLowerCase()
+      );
+      if (!match) return 0;
+      const avgPrice = match.avgPrice ?? 0;
+      const estimatedWeight = match.estimatedWeight ?? 0;
+      const price = avgPrice * estimatedWeight * rec.quantity;
+      return isNaN(price) ? 0 : Number(price.toFixed(1));
+    } catch (error) {
+      return 0;
+    }
+  };
 
   // Address and coordinates edit states
   const [editAddress, setEditAddress] = useState('');
@@ -49,10 +68,22 @@ export default function RecordDetails() {
   const [savingLocation, setSavingLocation] = useState(false);
 
   useEffect(() => {
+    listDocuments<MasterDataResource>('masterData_resources')
+      .then(setMasterData)
+      .catch(err => console.error('Failed to load master data:', err));
+  }, []);
+
+  useEffect(() => {
     if (!id) return;
     const unsubscribe = onSnapshot(doc(db, 'recoveryRecords', id), (docSnap) => {
       if (docSnap.exists()) {
         const data = { id: docSnap.id, ...docSnap.data() } as RecoveryRecord;
+        if (data.expirationDate && data.status !== RecordStatus.COMPLETED && data.status !== RecordStatus.CANCELLED) {
+          if (data.expirationDate?.toDate && data.expirationDate.toDate() < new Date()) {
+            data.status = RecordStatus.CANCELLED;
+            updateDocument('recoveryRecords', data.id, { status: RecordStatus.CANCELLED });
+          }
+        }
         setRecord(data);
         if (!hasInitialized) {
           setEditAddress(data.address || '');
@@ -60,7 +91,7 @@ export default function RecordDetails() {
           setEditLng(data.coordinates?.longitude?.toString() || '');
           setHasInitialized(true);
         }
-        if (data.status === RecordStatus.JUST_BORN && !data.selectedGoingHomeId) {
+        if ((data.status === RecordStatus.JUST_BORN || data.status === RecordStatus.OPEN_FOR_ALL) && !data.selectedGoingHomeId) {
           findNearbyRays(data);
         }
       }
@@ -154,6 +185,19 @@ export default function RecordDetails() {
     }
   };
 
+  const handleMakeOpenForAll = async () => {
+    if (!id) return;
+    try {
+      await updateDocument('recoveryRecords', id, {
+        status: RecordStatus.OPEN_FOR_ALL,
+        statusUpdatedAt: new Date()
+      } as any);
+      toast.success('已將本筆記錄改為公開徵收狀態！');
+    } catch (error) {
+      toast.error('操作失敗，請重試');
+    }
+  };
+
   const getCurrentLocation = () => {
     if (!navigator.geolocation) {
       toast.error('您的瀏覽器不支援地理定位');
@@ -228,7 +272,14 @@ export default function RecordDetails() {
         <div className="md:col-span-2 space-y-6">
           <Card className="rounded-3xl border-slate-200 overflow-hidden shadow-lg">
             <div className="aspect-video relative">
-              <img src={record.imageUrl} alt={record.productCategory} className="w-full h-full object-cover" />
+              {record.imageUrl ? (
+                <img src={record.imageUrl} alt={record.productCategory} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center text-slate-300 gap-2">
+                  <Package className="w-16 h-16 stroke-1" />
+                  <span className="text-sm font-medium text-slate-400">未提供物品照片</span>
+                </div>
+              )}
               <div className="absolute top-4 left-4">
                 <Badge className="bg-slate-900/80 backdrop-blur-md border-none text-white px-4 py-1">
                   {record.status}
@@ -241,9 +292,28 @@ export default function RecordDetails() {
                   <h1 className="text-3xl font-bold text-slate-900">{record.productCategory}</h1>
                   <p className="text-slate-500 font-medium text-lg">{record.materialCategory}</p>
                 </div>
-                <div className="text-center font-bold">
-                  <span className="block text-4xl text-cyan-600 leading-none">{record.quantity}</span>
-                  <span className="text-xs text-slate-400">數量 ({record.unit || '個'})</span>
+                <div className="text-right flex flex-col items-end">
+                  <div className="text-center font-bold">
+                    <span className="block text-4xl text-cyan-600 leading-none">{record.quantity}</span>
+                    <span className="text-xs text-slate-400">數量 ({record.unit || '個'})</span>
+                  </div>
+                  
+                  <div className="mt-3 flex items-center gap-1 text-amber-600 bg-amber-50/80 border border-amber-100/50 rounded-xl px-2.5 py-1">
+                    <span className="text-[10px] font-bold text-amber-700">預估收購價</span>
+                    <span className="text-base font-black font-mono">
+                      {calculateEstimate(record, masterData)}
+                    </span>
+                    <span className="text-[10px] text-amber-800 font-bold">元</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPriceWarning(true);
+                      }}
+                      className="p-0.5 rounded-full text-amber-500 hover:text-amber-600 hover:bg-amber-100/50 transition-all ml-0.5"
+                    >
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -277,11 +347,17 @@ export default function RecordDetails() {
                 </div>
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-slate-400 shrink-0" />
-                  <span>建立於 {record.createdAt.toDate().toLocaleString()}</span>
+                  <span>建立於 {record.createdAt?.toDate ? record.createdAt.toDate().toLocaleString() : '處理中...'}</span>
                 </div>
+                {record.expirationDate && (
+                  <div className="flex items-center gap-3 text-amber-600 font-semibold">
+                    <Clock className="w-5 h-5 shrink-0" />
+                    <span>有效期限至 {record.expirationDate?.toDate ? record.expirationDate.toDate().toLocaleString() : '處理中...'}</span>
+                  </div>
+                )}
               </div>
 
-              {profile?.roles?.includes('GOING_HOME') && record.status === RecordStatus.COMPLETED && (
+              {record.status === RecordStatus.COMPLETED && (
                 <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end">
                   <Button 
                     onClick={() => navigate(`/newRecycleContract?sourceId=${record.id}`)}
@@ -325,7 +401,7 @@ export default function RecordDetails() {
             </Card>
           )}
 
-          {record.status === RecordStatus.JUST_BORN && (
+          {(record.status === RecordStatus.JUST_BORN || record.status === RecordStatus.OPEN_FOR_ALL) && (
             <Card className="rounded-3xl border-slate-200 shadow-md overflow-hidden bg-white animate-in fade-in slide-in-from-bottom-4 duration-300">
               <CardHeader className="bg-slate-50 border-b border-slate-100 p-6">
                 <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900">
@@ -411,7 +487,7 @@ export default function RecordDetails() {
 
         {/* Action / Status Section */}
         <div className="space-y-6">
-          {record.status === RecordStatus.JUST_BORN && (
+          {(record.status === RecordStatus.JUST_BORN || record.status === RecordStatus.OPEN_FOR_ALL) && (
             <Card className="rounded-3xl border-slate-200 shadow-sm sticky top-8">
               <CardHeader>
                 <CardTitle className="text-lg">尋找勾引魟</CardTitle>
@@ -474,7 +550,7 @@ export default function RecordDetails() {
                               {hasPrice && (
                                 <p className="text-xs text-amber-600 font-bold mt-1.5 flex items-center gap-1 bg-amber-50 rounded-lg px-2 py-0.5 border border-amber-100/50 w-fit">
                                   <Coins className="w-3.5 h-3.5" />
-                                  <span>收購價格：{matchedGuide.price} 元 / {record?.unit || '單位'}</span>
+                                  <span>收購價格：{matchedGuide.price} 元 / 公斤</span>
                                 </p>
                               )}
                             </div>
@@ -485,6 +561,21 @@ export default function RecordDetails() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {record.status === RecordStatus.JUST_BORN && (
+                  <div className="mt-6 pt-6 border-t border-slate-100 space-y-3">
+                    <div className="text-xs text-slate-500 font-sans leading-relaxed">
+                      💡 找不到合適的勾引魟？您也可以將此單「公開徵收」，讓附近所有符合材質規格的勾引魟皆能主動應徵接單！
+                    </div>
+                    <Button 
+                      onClick={handleMakeOpenForAll}
+                      className="w-full rounded-full bg-cyan-600 hover:bg-cyan-700 font-bold h-10 text-xs text-white shadow-md flex items-center justify-center gap-1.5"
+                    >
+                      <Bell className="w-4 h-4 animate-pulse" />
+                      將此回收記錄公開徵收
+                    </Button>
                   </div>
                 )}
               </CardContent>
@@ -564,7 +655,7 @@ export default function RecordDetails() {
                     {hasPrice && (
                       <div className="flex items-center gap-2 p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 font-bold text-xs animate-in fade-in duration-300">
                         <Coins className="w-4 h-4 text-amber-500 shrink-0" />
-                        <span>收購價格：{guide.price} 元 / {record?.unit || '單位'}</span>
+                        <span>收購價格：{guide.price} 元 / 公斤</span>
                       </div>
                     )}
                     {guide && guide.instructions ? (
@@ -613,6 +704,28 @@ export default function RecordDetails() {
               className="rounded-full font-bold px-6 h-10 bg-slate-900 hover:bg-slate-800 text-white shadow-md flex items-center justify-center gap-2 transition-all hover:scale-[1.02]"
             >
               已完成
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPriceWarning} onOpenChange={setShowPriceWarning}>
+        <DialogContent className="sm:max-w-md rounded-3xl bg-white p-6 border-slate-200 shadow-xl">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-900">
+              <AlertCircle className="w-5 h-5 text-amber-500" />
+              收購價格估算說明
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-slate-600 font-medium text-sm leading-relaxed border-t border-slate-100">
+            <p>請注意，此為粗略估計的收購價格，並非最終收購價格。<br/>若資料不足無法計算則顯示0元。</p>
+          </div>
+          <DialogFooter className="border-t border-slate-100 pt-4">
+            <Button 
+              onClick={() => setShowPriceWarning(false)} 
+              className="rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold px-6"
+            >
+              我知道了
             </Button>
           </DialogFooter>
         </DialogContent>

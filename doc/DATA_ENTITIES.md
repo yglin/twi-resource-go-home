@@ -102,15 +102,18 @@ interface AvailabilitySlot {
 | `createdAt` | `Timestamp` | 是 | `serverTimestamp()` | **上傳產出時間戳記** |
 | `statusUpdatedAt` | `Timestamp` | 否 | - | **最後一次更新狀態之時間** |
 | `unableToCollectReason` | `string` | 否 | - | **「無法收取」取消回報之具體理由紀錄** (由勾引魟回填，留存案底提供給梅克魚檢視) |
+| `expirationDate` | `Timestamp` | 否 | - | **有效期限** (回收記錄必須在「有效期限」之前完成它的收運流程，否則就自動被取消。現在時間＋對應類別主檔的過期時數) |
 
 ### 回收物資生命週期狀態 (`RecordStatus` Enum)
 ```typescript
 export enum RecordStatus {
   JUST_BORN = 'JUST_BORN',                       // 剛出生 (待梅克魚前置處理並指定勾引魟)
+  OPEN_FOR_ALL = 'OPEN_FOR_ALL',                 // 公開徵收 (公開物資市場中開放所有勾引魟應徵接單)
   WAITING_FOR_COLLECTION = 'WAITING_FOR_COLLECTION', // 等待收取 (已指派委託魟，待進入其出載計畫)
   COLLECTION_CONFIRMED = 'COLLECTION_CONFIRMED',     // 計畫已確認 (魟魚已排入生效的 GoingHomePlan 計畫中)
   PICKED_UP = 'PICKED_UP',                       // 物資已上車載運 (魟魚抵達現場，按下實體上車按鈕)
-  COMPLETED = 'COMPLETED'                        // 任務圓滿完成 (魟魚運抵最終處理站，按下完成收載)
+  COMPLETED = 'COMPLETED',                       // 任務圓滿完成 (魟魚運抵最終處理站，按下完成收載)
+  CANCELLED = 'CANCELLED'                        // 已取消過期 (系統偵測超過有效期限未完成收運，自動將其取消)
 }
 ```
 
@@ -193,9 +196,11 @@ interface PlanStop {
 | `defaultSuggestion` | `string` | 是 | - | **通用基礎前置處理指引** (AI 辨識無法辨認特定魟魚指引時之保底預填建議規則) |
 | `icon` | `string` | 否 | - | **UI 圖標字串** (與 Lucide 圖標動態映射) |
 | `keywords` | `string[]` | 否 | `[]` | **比對關鍵字陣列** (用以協助 Gemini 影像辨識快速分類比對相似近義詞) |
-| `carbonReduced` | `number` | 否 | - | **每單位減碳效益 (公克/單位)** (回收1個計量單位該類別的可回收資源的減碳效益) |
+| `carbonReduced` | `number` | 否 | - | **每單位減碳效益 (公克/公斤)** (回收1公斤該類別的可回收資源的減碳效益) |
 | `unit` | `string` | 否 | `'個'` | **數量計量單位** (自定義各類型可回收資源之數量單位，例如紙箱用「個」、寶特瓶用「瓶」、廚餘用「公升」、口罩用「片」等) |
-| `estimatedWeight` | `number` | 否 | `0.1` | **預估重量 (公斤/單位)** (基因演算法物流最佳化計算載重成本耗能的重要指標物) |
+| `estimatedWeight` | `number` | 否 | `0.1` | **預估重量 (公斤/單位)** (作為物流載重成本耗能指標，亦用於預估收購價格之計算：預估收購價格 = 產品平均收購價 * 單件預估重量 * 數量) |
+| `expireAfterhHours` | `number` | 否 | `0` | **過期時數 (小時)** (該類別的可回收資源經過多少小時就會過期變成無法回收，`0` 表示無限期。例如：廚餘大約是 `24`、塑膠寶特瓶是 `0`) |
+| `avgPrice` | `number` | 否 | - | **平均收購價 (元/公斤)** (該類別的可回收資源每公斤的平均收購價。值是由所有收取該類別可回收資源的資源瑞莎魺的收購價格平均而來，每天會計算更新一次。系統管理者可以檢視，但無法修改它) |
 
 *註：當資源梅克魚利用 AI 相機辨識出新分類，而該分類在目前主檔中不存在時，應用系統將自動學習並在 `masterData_resources` 中建立新的一筆防呆通用主檔。*
 

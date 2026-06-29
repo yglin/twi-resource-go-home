@@ -80,7 +80,7 @@ export function decodeChromosome(
         const key = item.material; // "materialCategory_productCategory"
         if (node.prices && node.prices[key] !== undefined) {
           const unitPrice = node.prices[key];
-          profitEarned += item.qty * unitPrice;
+          profitEarned += item.weight * unitPrice;
           
           currentLoad -= item.weight;
           currentInventory.delete(pickupId);

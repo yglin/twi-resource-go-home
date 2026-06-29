@@ -4,18 +4,22 @@ import { useAuth } from '../../App';
 import { db } from '../../firebase';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { RecoveryRecord, RecordStatus, MasterDataResource } from '../../types';
-import { listDocuments } from '../../services/firestoreService';
+import { listDocuments, updateDocument } from '../../services/firestoreService';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Package, Clock, MapPin, ChevronRight, Inbox, Check, Copy, Leaf } from 'lucide-react';
+import { Package, Clock, MapPin, ChevronRight, Inbox, Check, Copy, Leaf, X, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string, icon: any }> = {
   [RecordStatus.JUST_BORN]: { label: '待處理', color: 'bg-slate-500', icon: <Clock /> },
+  [RecordStatus.OPEN_FOR_ALL]: { label: '公開徵收', color: 'bg-cyan-500', icon: <Clock /> },
   [RecordStatus.WAITING_FOR_COLLECTION]: { label: '等待收運', color: 'bg-blue-500', icon: <MapPin /> },
   [RecordStatus.COLLECTION_CONFIRMED]: { label: '已確認收運', color: 'bg-indigo-500', icon: <Check /> },
   [RecordStatus.PICKED_UP]: { label: '運送中', color: 'bg-amber-500', icon: <Package /> },
   [RecordStatus.COMPLETED]: { label: '已完成', color: 'bg-green-500', icon: <ChevronRight /> },
+  [RecordStatus.CANCELLED]: { label: '已過期取消', color: 'bg-rose-500', icon: <X /> },
 };
 
 export default function RecordList() {
@@ -24,7 +28,25 @@ export default function RecordList() {
   const [masterData, setMasterData] = useState<MasterDataResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'in_progress' | 'completed' | 'all'>('pending');
+  const [showPriceWarning, setShowPriceWarning] = useState(false);
   const navigate = useNavigate();
+
+  const calculateEstimate = (record: RecoveryRecord, masterList: MasterDataResource[]) => {
+    try {
+      if (!record || !masterList) return 0;
+      const match = masterList.find(
+        m => m.material.trim().toLowerCase() === record.materialCategory?.trim().toLowerCase() &&
+             m.product.trim().toLowerCase() === record.productCategory?.trim().toLowerCase()
+      );
+      if (!match) return 0;
+      const avgPrice = match.avgPrice ?? 0;
+      const estimatedWeight = match.estimatedWeight ?? 0;
+      const price = avgPrice * estimatedWeight * record.quantity;
+      return isNaN(price) ? 0 : Number(price.toFixed(1));
+    } catch (error) {
+      return 0;
+    }
+  };
 
   useEffect(() => {
     // Fetch master data resources
@@ -42,7 +64,16 @@ export default function RecordList() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RecoveryRecord));
+      const data = snapshot.docs.map(doc => {
+        const item = { id: doc.id, ...doc.data() } as RecoveryRecord;
+        if (item.expirationDate && item.status !== RecordStatus.COMPLETED && item.status !== RecordStatus.CANCELLED) {
+          if (item.expirationDate?.toDate && item.expirationDate.toDate() < new Date()) {
+            item.status = RecordStatus.CANCELLED;
+            updateDocument('recoveryRecords', item.id, { status: RecordStatus.CANCELLED });
+          }
+        }
+        return item;
+      });
       setRecords(data);
       setLoading(false);
     });
@@ -67,7 +98,7 @@ export default function RecordList() {
   const filteredRecords = records.filter(record => {
     switch (activeTab) {
       case 'pending':
-        return record.status === RecordStatus.JUST_BORN;
+        return record.status === RecordStatus.JUST_BORN || record.status === RecordStatus.OPEN_FOR_ALL;
       case 'in_progress':
         return [
           RecordStatus.WAITING_FOR_COLLECTION,
@@ -102,7 +133,7 @@ export default function RecordList() {
           }`}
           id="tab-pending"
         >
-          待處理 ({records.filter(r => r.status === RecordStatus.JUST_BORN).length})
+          待處理 ({records.filter(r => r.status === RecordStatus.JUST_BORN || r.status === RecordStatus.OPEN_FOR_ALL).length})
         </button>
         <button
           onClick={() => setActiveTab('in_progress')}
@@ -242,9 +273,27 @@ export default function RecordList() {
                             </div>
                             <p className="text-xs text-slate-500 text-left">{record.materialCategory}</p>
                           </div>
-                          <div className="text-right">
-                            <span className="text-2xl font-black text-cyan-600">{record.quantity}</span>
-                            <span className="text-xs text-slate-400 ml-1">{record.unit || '個'}</span>
+                           <div className="text-right">
+                            <div className="flex items-baseline justify-end">
+                              <span className="text-2xl font-black text-cyan-600">{record.quantity}</span>
+                              <span className="text-xs text-slate-400 ml-1">{record.unit || '個'}</span>
+                            </div>
+                            <div className="mt-1 flex items-center justify-end gap-1 text-amber-600 font-bold">
+                              <span className="text-[10px] font-semibold text-slate-400">估價:</span>
+                              <span className="text-sm font-black font-mono">
+                                {calculateEstimate(record, masterData)}
+                              </span>
+                              <span className="text-[10px] text-slate-400">元</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowPriceWarning(true);
+                                }}
+                                className="p-0.5 rounded-full text-amber-500 hover:text-amber-600 hover:bg-amber-100/50 transition-all"
+                              >
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                         <p className="text-sm text-slate-600 line-clamp-2 italic mb-4">
@@ -263,9 +312,17 @@ export default function RecordList() {
                           <MapPin className="w-3 h-3" />
                           <span className="truncate max-w-[150px]">{record.address}</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          <span>{record.createdAt.toDate().toLocaleDateString()}</span>
+                        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-4">
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>申報：{record.createdAt?.toDate ? record.createdAt.toDate().toLocaleDateString() : '處理中...'}</span>
+                          </div>
+                          {record.expirationDate && (
+                            <div className="flex items-center gap-1 text-amber-600 font-semibold">
+                              <Clock className="w-3 h-3" />
+                              <span>期限：{record.expirationDate?.toDate ? record.expirationDate.toDate().toLocaleDateString() : '處理中...'}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -276,6 +333,28 @@ export default function RecordList() {
           </AnimatePresence>
         </div>
       )}
+
+      <Dialog open={showPriceWarning} onOpenChange={setShowPriceWarning}>
+        <DialogContent className="sm:max-w-md rounded-3xl bg-white p-6 border-slate-200 shadow-xl">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-900">
+              <AlertCircle className="w-5 h-5 text-amber-500" />
+              收購價格估算說明
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-slate-600 font-medium text-sm leading-relaxed border-t border-slate-100">
+            <p>請注意，此為粗略估計的收購價格，並非最終收購價格。<br/>若資料不足無法計算則顯示0元。</p>
+          </div>
+          <DialogFooter className="border-t border-slate-100 pt-4">
+            <Button 
+              onClick={() => setShowPriceWarning(false)} 
+              className="rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold px-6"
+            >
+              我知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

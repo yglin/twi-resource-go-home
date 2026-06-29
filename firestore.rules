@@ -97,21 +97,21 @@ service cloud.firestore {
         return data.materialCategory is string && data.productCategory is string &&
                data.quantity is number && data.quantity > 0 &&
                data.imageUrl is string && data.address is string &&
-               data.status in ['JUST_BORN', 'WAITING_FOR_COLLECTION', 'COLLECTION_CONFIRMED', 'PICKED_UP', 'COMPLETED'] &&
-               (data.makerFishId == request.auth.uid || data.selectedGoingHomeId == request.auth.uid);
+               data.status in ['JUST_BORN', 'WAITING_FOR_COLLECTION', 'COLLECTION_CONFIRMED', 'PICKED_UP', 'COMPLETED', 'OPEN_FOR_ALL', 'CANCELLED'] &&
+               (data.makerFishId == request.auth.uid || data.get('selectedGoingHomeId', '') == request.auth.uid || data.status == 'OPEN_FOR_ALL' || data.status == 'CANCELLED');
       }
 
-      allow get: if isSignedIn() && (
+      allow get: if existing().status == 'OPEN_FOR_ALL' || (isSignedIn() && (
         existing().makerFishId == request.auth.uid || 
         existing().selectedGoingHomeId == request.auth.uid ||
         isAdmin()
-      );
+      ));
 
-      allow list: if isSignedIn() && (
+      allow list: if resource.data.status == 'OPEN_FOR_ALL' || (isSignedIn() && (
         resource.data.makerFishId == request.auth.uid || 
         resource.data.selectedGoingHomeId == request.auth.uid ||
         isAdmin()
-      );
+      ));
 
       allow create: if isSignedIn() && isValidRecord(incoming()) && 
                        incoming().createdAt == request.time;
@@ -119,11 +119,11 @@ service cloud.firestore {
       allow update: if isSignedIn() && (
         // Maker Fish updates
         (existing().makerFishId == request.auth.uid && (
-          // Action: select a Ray
+          // Action: select a Ray or change status to OPEN_FOR_ALL or CANCELLED
           (incoming().diff(existing()).affectedKeys().hasAny(['selectedGoingHomeId', 'status', 'statusUpdatedAt']) &&
-           incoming().status in ['JUST_BORN', 'WAITING_FOR_COLLECTION']) ||
-          // Action: update location and coordinates when status is JUST_BORN
-          (existing().status == 'JUST_BORN' &&
+           incoming().status in ['JUST_BORN', 'WAITING_FOR_COLLECTION', 'OPEN_FOR_ALL', 'CANCELLED']) ||
+          // Action: update location and coordinates when status is JUST_BORN or OPEN_FOR_ALL
+          ((existing().status == 'JUST_BORN' || existing().status == 'OPEN_FOR_ALL') &&
            incoming().diff(existing()).affectedKeys().hasOnly(['address', 'coordinates']) &&
            incoming().address is string && incoming().address.size() > 0 &&
            incoming().coordinates is latlng)
@@ -136,10 +136,15 @@ service cloud.firestore {
            incoming().status == 'JUST_BORN' &&
            incoming().selectedGoingHomeId == '')
         )) ||
+        // Ray claiming a public record
+        (existing().status == 'OPEN_FOR_ALL' && 
+         incoming().selectedGoingHomeId == request.auth.uid && 
+         incoming().status == 'COLLECTION_CONFIRMED' &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['selectedGoingHomeId', 'status', 'statusUpdatedAt'])) ||
         isAdmin()
       );
 
-      allow delete: if isAdmin() || (isSignedIn() && existing().makerFishId == request.auth.uid && existing().status == 'JUST_BORN');
+      allow delete: if isAdmin() || (isSignedIn() && existing().makerFishId == request.auth.uid && (existing().status == 'JUST_BORN' || existing().status == 'OPEN_FOR_ALL'));
     }
 
     // ---------------------------------------------------------

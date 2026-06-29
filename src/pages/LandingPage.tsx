@@ -25,9 +25,18 @@ export default function LandingPage() {
           <Waves className="w-8 h-8 text-cyan-400" />
           <span>資源勾引魟</span>
         </div>
-        <Button onClick={() => navigate('/auth')} variant="secondary" className="rounded-full px-8 shrink-0">
-          開始使用
-        </Button>
+        <div className="flex items-center gap-3 shrink-0">
+          <Button 
+            onClick={() => navigate('/openForAll')} 
+            variant="ghost" 
+            className="text-slate-300 hover:text-white hover:bg-slate-900 rounded-full px-6 text-sm font-semibold"
+          >
+            公開徵收市場
+          </Button>
+          <Button onClick={() => navigate('/auth')} variant="secondary" className="rounded-full px-8">
+            開始使用
+          </Button>
+        </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center text-center px-6 z-10">

@@ -31,7 +31,8 @@ import {
   Trash2,
   ThumbsUp,
   Map as MapIcon,
-  Coins
+  Coins,
+  Package
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { runGeneticRoutePlanner } from '../../utils/geneticAlgorithm';
@@ -1235,7 +1236,13 @@ export default function ActivePlan() {
 
                             {/* Details of the items */}
                             <div className="flex-1 flex gap-4 min-w-0">
-                              <img src={req.imageUrl} className="w-16 h-16 rounded-xl object-cover shrink-0" referrerPolicy="no-referrer" />
+                              {req.imageUrl ? (
+                                <img src={req.imageUrl} className="w-16 h-16 rounded-xl object-cover shrink-0" referrerPolicy="no-referrer" />
+                              ) : (
+                                <div className="w-16 h-16 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100">
+                                  <Package className="w-8 h-8 stroke-1 text-slate-300" />
+                                </div>
+                              )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-start gap-2">
                                   <h4 className="font-extrabold text-sm text-slate-900 truncate" title={req.productCategory}>{req.productCategory}</h4>

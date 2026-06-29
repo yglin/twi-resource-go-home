@@ -100,7 +100,10 @@
         "icon": { "type": "string" },
         "keywords": { "type": "array", "items": { "type": "string" } },
         "carbonReduced": { "type": "number", "description": "Carbon reduction benefit of recycling 1 unit of this category in grams" },
-        "unit": { "type": "string", "description": "Counting unit of this resource category, e.g. 瓶, 片, 公升" }
+        "unit": { "type": "string", "description": "Counting unit of this resource category, e.g. 瓶, 片, 公升" },
+        "estimatedWeight": { "type": "number" },
+        "expireAfterhHours": { "type": "number" },
+        "avgPrice": { "type": "number", "description": "The average acquisition price per kilogram of this resource category calculated from Recyclers' acquisition prices" }
       },
       "required": ["material", "product", "defaultSuggestion"]
     },
@@ -118,7 +121,10 @@
         "suggestedByEmail": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "carbonReduced": { "type": "number", "description": "Carbon reduction benefit of recycling 1 unit of this category in grams" },
-        "unit": { "type": "string", "description": "Counting unit of this resource category, e.g. 瓶, 片, 公升" }
+        "unit": { "type": "string", "description": "Counting unit of this resource category, e.g. 瓶, 片, 公升" },
+        "estimatedWeight": { "type": "number" },
+        "expireAfterhHours": { "type": "number" },
+        "avgPrice": { "type": "number", "description": "The average acquisition price per kilogram of this resource category calculated from Recyclers' acquisition prices" }
       },
       "required": ["material", "product", "defaultSuggestion", "suggestedBy", "createdAt"]
     },

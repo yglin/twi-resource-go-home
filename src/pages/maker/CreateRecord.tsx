@@ -8,11 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Camera, Image as ImageIcon, Sparkles, Loader2, Check, ArrowLeft, Send } from 'lucide-react';
+import { Camera, Image as ImageIcon, Sparkles, Loader2, Check, ArrowLeft, Send, Leaf, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Timestamp, GeoPoint, serverTimestamp } from 'firebase/firestore';
 import { logToSystem, LogLevel } from '../../services/logger';
 import { compressBase64Image } from '../../utils/imageCompressor';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 export default function CreateRecord() {
   const { user, profile } = useAuth();
@@ -33,8 +34,53 @@ export default function CreateRecord() {
   const [notes, setNotes] = useState(copiedRecord?.recycleNotes || '');
   const [location, setLocation] = useState(copiedRecord?.address || profile?.address || '');
   const [coordinates, setCoordinates] = useState<GeoPoint | null>(copiedRecord?.coordinates || profile?.coordinates || null);
+  const [openForAll, setOpenForAll] = useState(copiedRecord?.status === RecordStatus.OPEN_FOR_ALL || false);
+  const [showPriceWarning, setShowPriceWarning] = useState(false);
+  const [expirationDateStr, setExpirationDateStr] = useState<string>(
+    copiedRecord?.expirationDate
+      ? (() => {
+          const d = copiedRecord.expirationDate.toDate();
+          const pad = (n: number) => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        })()
+      : ''
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getEstimatedPrice = () => {
+    try {
+      const trimmedM = material.trim().toLowerCase();
+      const trimmedC = category.trim().toLowerCase();
+      const matched = masterData.find(
+        r => r.material.trim().toLowerCase() === trimmedM && r.product.trim().toLowerCase() === trimmedC
+      );
+      if (!matched) return 0;
+      const avgPrice = matched.avgPrice ?? 0;
+      const estimatedWeight = matched.estimatedWeight ?? 0;
+      const price = avgPrice * estimatedWeight * quantity;
+      return isNaN(price) ? 0 : Number(price.toFixed(1));
+    } catch (e) {
+      return 0;
+    }
+  };
+  const estPrice = getEstimatedPrice();
+
+  useEffect(() => {
+    if (!material || !category) return;
+    const trimmedM = material.trim().toLowerCase();
+    const trimmedC = category.trim().toLowerCase();
+    const matched = masterData.find(
+      r => r.material.trim().toLowerCase() === trimmedM && r.product.trim().toLowerCase() === trimmedC
+    );
+    if (matched && matched.expireAfterhHours && matched.expireAfterhHours > 0) {
+      const d = new Date();
+      d.setHours(d.getHours() + matched.expireAfterhHours);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const valStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      setExpirationDateStr(valStr);
+    }
+  }, [material, category, masterData]);
 
   useEffect(() => {
     // Load master data for better matching
@@ -148,7 +194,22 @@ export default function CreateRecord() {
         toast.success(`✨ 偵測到全新資材類別 [${trimmedMaterial} / ${trimmedCategory} | 單位：${unit.trim() || '個'}]，已自動向管理員提報建議新增！`);
       }
 
-      const recordData = {
+      const matchedMaster = masterData.find(
+        (r) =>
+          r.material.trim().toLowerCase() === trimmedMaterial.toLowerCase() &&
+          r.product.trim().toLowerCase() === trimmedCategory.toLowerCase()
+      );
+
+      let expirationDate: Timestamp | null = null;
+      if (expirationDateStr) {
+        expirationDate = Timestamp.fromDate(new Date(expirationDateStr));
+      } else if (matchedMaster && matchedMaster.expireAfterhHours && matchedMaster.expireAfterhHours > 0) {
+        const expDate = new Date();
+        expDate.setHours(expDate.getHours() + matchedMaster.expireAfterhHours);
+        expirationDate = Timestamp.fromDate(expDate);
+      }
+
+      const recordData: any = {
         makerFishId: user.uid,
         materialCategory: trimmedMaterial,
         productCategory: trimmedCategory,
@@ -158,12 +219,17 @@ export default function CreateRecord() {
         imageUrl: image || '', // Optional base64 image
         address: location,
         coordinates: coordinates || new GeoPoint(0, 0),
-        status: RecordStatus.JUST_BORN,
+        status: openForAll ? RecordStatus.OPEN_FOR_ALL : RecordStatus.JUST_BORN,
         recycleNotes: notes,
         createdAt: serverTimestamp(),
         candidateGoingHomeIds: [],
+        selectedGoingHomeId: '',
         timeWindow: profile?.timeWindow || {}
       };
+
+      if (expirationDate) {
+        recordData.expirationDate = expirationDate;
+      }
 
       await createDocument('recoveryRecords', recordData);
       await logToSystem(LogLevel.INFO, '資源回收記錄存檔成功', 'CreateRecord', { material: trimmedMaterial, category: trimmedCategory });
@@ -292,6 +358,29 @@ export default function CreateRecord() {
                 </div>
               </div>
 
+              {/* Estimated Price Display */}
+              <div className="bg-amber-50/60 border border-amber-100 p-4 rounded-2xl flex items-center justify-between gap-4">
+                <div className="flex flex-col">
+                  <span className="text-xs text-amber-800 font-bold flex items-center gap-1">
+                    預估收購價格 (NTD)
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-sans">依材質平均收購價與預估重量粗估</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xl font-black text-amber-600 font-mono">
+                    {estPrice}
+                  </span>
+                  <span className="text-xs text-amber-700 font-bold">元</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPriceWarning(true)}
+                    className="p-1 rounded-full text-amber-500 hover:text-amber-600 hover:bg-amber-100/50 transition-all"
+                  >
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label>分類回收建議 (AI / 系統建議)</Label>
                 <Textarea value={suggestion} onChange={e => setSuggestion(e.target.value)} className="resize-none" />
@@ -306,8 +395,39 @@ export default function CreateRecord() {
               </div>
 
               <div className="space-y-2">
+                <Label className="flex items-center gap-1.5 text-slate-700">
+                  有效期限 <span className="text-xs text-slate-400 font-normal">(選擇性，未輸入則依資材類別預估)</span>
+                </Label>
+                <Input 
+                  type="datetime-local" 
+                  value={expirationDateStr} 
+                  onChange={e => setExpirationDateStr(e.target.value)} 
+                  className="text-slate-800 font-mono"
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label>備註 (選擇性)</Label>
                 <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="是否有漏氣、殘留液體等..." />
+              </div>
+
+              <div className="flex items-start gap-3 bg-cyan-50/50 p-4 rounded-2xl border border-cyan-100 mt-4">
+                <input
+                  type="checkbox"
+                  id="open-for-all"
+                  checked={openForAll}
+                  onChange={(e) => setOpenForAll(e.target.checked)}
+                  className="h-5 w-5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 cursor-pointer mt-0.5 shrink-0"
+                />
+                <div className="flex flex-col">
+                  <label htmlFor="open-for-all" className="font-bold text-slate-800 text-sm cursor-pointer flex items-center gap-1.5">
+                    <Leaf className="w-4 h-4 text-emerald-500" />
+                    將此回收記錄公開徵收
+                  </label>
+                  <span className="text-xs text-slate-500 mt-0.5">
+                    設定為「是」將使此物資直接公開，任何附近的勾引魟皆可主動接單，不限於單一指名指定！
+                  </span>
+                </div>
               </div>
 
               <Button onClick={handleSubmit} disabled={analyzing || !material || !category} className="w-full h-14 rounded-full bg-cyan-600 hover:bg-cyan-700 text-lg shadow-lg mt-4">
@@ -318,6 +438,28 @@ export default function CreateRecord() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={showPriceWarning} onOpenChange={setShowPriceWarning}>
+        <DialogContent className="sm:max-w-md rounded-3xl bg-white p-6 border-slate-200 shadow-xl">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-900">
+              <AlertCircle className="w-5 h-5 text-amber-500" />
+              收購價格估算說明
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-slate-600 font-medium text-sm leading-relaxed border-t border-slate-100">
+            <p>請注意，此為粗略估計的收購價格，並非最終收購價格。<br/>若資料不足無法計算則顯示0元。</p>
+          </div>
+          <DialogFooter className="border-t border-slate-100 pt-4">
+            <Button 
+              onClick={() => setShowPriceWarning(false)} 
+              className="rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold px-6"
+            >
+              我知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

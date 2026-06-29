@@ -930,7 +930,7 @@ export default function ProfileSetup() {
                                       <div className="space-y-1.5">
                                         <div className="flex items-center gap-1.5 text-amber-600 text-[11px] font-bold uppercase tracking-wider">
                                           <Coins className="w-3 h-3" />
-                                          收購每單位之金額 (台幣元)
+                                          收購價格 (台幣元/公斤)
                                         </div>
                                         <Input
                                           type="number"
@@ -943,7 +943,7 @@ export default function ProfileSetup() {
                                               g.resourceId === res.id ? { ...g, price: priceVal } : g
                                             ));
                                           }}
-                                          placeholder="請輸入收購價格"
+                                          placeholder="請輸入每公斤收購價格"
                                           className="rounded-xl border-slate-200 focus:border-amber-500 focus:ring-amber-500/10 text-sm bg-white"
                                         />
                                       </div>
@@ -1037,7 +1037,7 @@ export default function ProfileSetup() {
 
                     {selectedRoles.includes('RECYCLER') && (
                       <div className="space-y-1.5">
-                        <Label htmlFor="dialog-price" className="text-xs font-semibold text-slate-500">收購價格 (台幣元)</Label>
+                        <Label htmlFor="dialog-price" className="text-xs font-semibold text-slate-500">收購價格 (台幣元/公斤)</Label>
                         <Input
                           id="dialog-price"
                           type="number"

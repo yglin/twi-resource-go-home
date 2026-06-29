@@ -4,10 +4,12 @@ export type UserRole = 'MAKER_FISH' | 'GOING_HOME' | 'SYSTEM_ADMIN' | 'RECYCLER'
 
 export enum RecordStatus {
   JUST_BORN = 'JUST_BORN',
+  OPEN_FOR_ALL = 'OPEN_FOR_ALL',
   WAITING_FOR_COLLECTION = 'WAITING_FOR_COLLECTION',
   COLLECTION_CONFIRMED = 'COLLECTION_CONFIRMED',
   PICKED_UP = 'PICKED_UP',
-  COMPLETED = 'COMPLETED'
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED'
 }
 
 export enum PlanStatus {
@@ -77,6 +79,7 @@ export interface RecoveryRecord {
   createdAt: Timestamp;
   statusUpdatedAt?: Timestamp;
   unableToCollectReason?: string;
+  expirationDate?: Timestamp;
 }
 
 export interface GoingHomePlan {
@@ -127,6 +130,8 @@ export interface MasterDataResource {
   carbonReduced?: number;
   unit?: string;
   estimatedWeight?: number;
+  expireAfterhHours?: number;
+  avgPrice?: number;
 }
 
 export interface NewMasterDataResource {
@@ -142,6 +147,8 @@ export interface NewMasterDataResource {
   carbonReduced?: number;
   unit?: string;
   estimatedWeight?: number;
+  expireAfterhHours?: number;
+  avgPrice?: number;
 }
 
 export interface GANode {

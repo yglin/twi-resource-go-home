@@ -34,11 +34,49 @@
   - 此 `newMasterData_resources` 集合對所有已登入之一般使用者開放唯讀與新建權限，維持開放回報與流暢度。
   - **系統管理審核機制**：僅擁有系統主控權限的管理員才能進入「管理員工作台（AdminDashboard）的建議資材審核佇列」，在此可進行人工覆核、微調材質品名/預設建議/修訂關鍵字，隨後單鍵執行「核准並匯入」，或「退回/刪除」該建議。此舉徹底保衛了主檔的資安屏障與數據精確度。
 
-### 5. AI 辨識回傳全新或未知類別時的處理流程 (AI-identified New Categories Processing Pipeline)
+### 5. 系統使用者管理與資材品類交叉過濾規格 (Admin User Management & Material-Product Cross Filtering)
+* **設計決策：** 為了讓管理端能極速精確查找有哪些使用者能收取/回收特定類別的資源，系統在使用者管理控制台中導入「材質 + 產品」雙維度交叉比對過濾器。
+* **技術細節：**
+  - 管理員工作面板設有「系統使用者管理」專區，整合全體註冊使用者帳號、頭像、角色 Badge、聯繫電話與登記地址等豐富資訊。
+  - **資材品類交叉比對**：過濾篩選器自動從材質主檔 `masterData_resources` 載入所有現行品類。當管理員在「所有收受資材品類」下拉選單中選擇某一特定資材項目（例如：塑膠 - 寶特瓶）時，過濾算法會對使用者進行交叉聯集比對：
+    1. 檢核使用者文檔的 `acceptedCategories`（收購大類）是否包含該資材 ID。
+    2. 檢核使用者文檔的 `recoveryGuides`（回收指南）中是否宣告了該資材 ID，或是其手動設定的 `material` 與 `product` 名稱與選定資材精確吻合。
+    - 凡符合上述任一條件之使用者（主要為資源瑞莎魺及勾引魟），將會即時高亮過濾展出，這大幅提升了跨角色資材流向的管理效率。
+
+### 6. 平均收購價 (avgPrice) 雙軌容錯計算策略 (Dual-Track Robust Recalculation of avgPrice)
+* **設計決策：** 系統針對每一種材質品類，皆維護一個 `avgPrice`（平均收購價），其值代表該資材品類在所有設有回收價格的「資源瑞莎魺」中的每公斤平均收購價格。由於雲端沙盒環境的安全限制，系統建立了兼顧安全與容錯的雙軌計算策略。
+* **技術細節：**
+  - **後端 API 執行線**：管理員可向 `/api/resources/recalculate-avg-prices` 發起 POST 請求，觸發後端讀取所有瑞莎魺的 `recoveryGuides`，計算出各品類的平均價格並以 Batch 寫回資料庫。
+  - **沙盒環境自動降級與前端同步計算機制 (Client-Side Safe Fallback)**：當後端容器在開發測試等沙盒環境下，若因 Service Account 權限限制在直寫資料庫時拋出 `PERMISSION_DENIED`，後端會自動捕獲此異常，記錄降級日誌且不崩潰。此時，管理員可在「資源主檔管理」控制台一鍵點擊「同步計算平均收購價」按鈕，系統會改由**前端管理員上下文身分**來執行計算管線：
+    1. 前端拉取所有具備 `RECYCLER` 身分的使用者文檔。
+    2. 針對主檔中的每一項資材，遍歷所有瑞莎魺，加總所有在其 `recoveryGuides` 中設定的該品類每公斤單價並除以總個數。
+    3. 計算出最新的 `avgPrice` 後，利用當前管理員的安全寫入權限，透過 Firestore `writeBatch` 一次性安全更新回 `masterData_resources` 集合中。
+    4. 計算完成後，透過 `logToSystem` API 向系統日誌中原子化載入一筆操作稽核日誌。
+  - 此雙軌容錯工藝設計，確保了計價系統在任何權限隔離或容器沙盒邊界下皆能保持 100% 業務可用性與資料一致性。
+
+### 7. 收購估價值單位一致化與預估價格計算約束 (Standardization of Price Units & Estimation Calculations)
+* **設計決策：** 為了維護系統中價值衡量體系的強一致性與計費透明度，避免不同使用者、系統元件與主檔數據之間因「元/公斤」與「元/個」等不同計量單位造成混淆，全系統的收購估價值顯示一律強制規格化。同時在各個回收與收運列表中展示動態計算的「預估收購價格」，引導三方使用者快速評估交易價值。
+* **技術細節：**
+  - **價格與估值單位強制化**：使用者詳細資料彈窗、個人回收指南列表、以及管理端展示的瑞莎魺收購報價，其計量顯示單位一律強制規格化並渲染為**「元 / 公斤」**（NTD per kilogram）。
+  - **預估收購價格計算公式**：系統中的各個申報與查看頁面（如：梅克魚新增/詳情/歷史列表、勾引魟可用收運單、以及公開徵收市場）在載入回收紀錄時，會動態提取對應材質產品之主檔資料。其預估收購價格（NTD）計算公式定義如下：
+    $$\text{預估收購價格} = \text{該資材品類之全台平均收購價 (avgPrice)} \times \text{該資材品類之預估單件重量 (estimatedWeight)} \times \text{物資申報數量 (quantity)}$$
+    若因資料不齊全、未設定單價或單件重量為 0，則計算將會保底並顯示為 `0` 元，避免系統崩潰或輸出異常 NaN 值。
+  - **免責說明 Dialog 組**：所有顯示預估收購價的介面均配置一個醒目的驚嘆號/資訊 icon。點擊時將彈出 Dialog 組，提示並聲明：「請注意，此為粗略估計的收購價格，並非最終收購價格。若資料不足無法計算則顯示0元。」，以在提供便利之餘建立正確的交易期待。
+  - 後端與資料庫中的計量數值皆以 `每公斤價格 (Price per kg)` 做為唯一物理基準，確保媒合、交易計價與基因演算法中的適應度函數（Fitness Function）在同一個因次下進行精準計算。
+
+### 8. AI 辨識回傳全新或未知類別時的處理流程 (AI-identified New Categories Processing Pipeline)
 * **設計決策：** 當 AI 的智慧影像分析服務回傳一個目前在材質主檔 `masterData_resources` 中完全不存在的（材質, 產品）類別時，系統會將此新類別視為「漸進式擴充資材」，直接套用到使用者當下產生的回收記錄中，並透過自動提報暫存區的方式，由管理端進行覆核。
 * **技術細節：** 
   - **新紀錄欄位套用：** 將 AI 判斷之新材質 `material`、產品 `category` 以及前置處理建議 `suggestion` 寫入至當下梅克魚的新 `recoveryRecords` 欄位（對應為 `materialCategory`、`productCategory` 與 `aiSuggestion`），且此時不設強制的相片附加與相片上傳限制。
   - **自動化提報佇列：** 若該次辨識（或手動微調）所得之類別完全不在載入的 `masterData_resources` 快照內，系統於背景將（材質, 產品, 前置處理建議, 提報者帳號與時間戳記）以新欄位封裝，非同步新增至 `newMasterData_resources` 集合，自動向管理員提報；在管理員覆核前，此臨時類別僅對該筆特定記錄生效，不會進入其他大眾用戶之主檔快速下拉篩選模板中，保障正式材質主檔的高確度與純淨。
+
+### 9. AI 資源富化 (AI Resource Enrichment) 的高可用性與沙盒防護 (High Availability & Sandbox Protection of AI Resource Enrichment)
+* **設計決策：** 在「管理員工作台（AdminDashboard）」新增或編輯材質主檔（或建議審核項目）時，管理端可點擊「AI智慧分析並自動填報其餘欄位」發起 `/api/resources/ai-enrich` 的 POST 請求。為因應高負載的 Gemini API 與受限的沙盒資料庫寫入權限，本系統建立了全方位的多重防護與重試重構策略。
+* **技術細節：**
+  - **Gemini API 暫時性不可用重試機制 (Exponential Backoff & Retry)**：在遇到 Gemini API 負載過高、頻寬超限或回傳 503 (UNAVAILABLE) 等暫時性異常時，系統內建最多 3 次的「指數退避重試演算法 (Exponential Backoff)」。每次重試失敗時，會以 `delayMs *= 2` 的間隔（1秒、2秒、4秒）進行等待與重試，並透過系統日誌系統記錄為 `info` 級別的「transient workload constraint, retrying shortly...」重試狀況，避免噪音警報。
+  - **確定性高解析保底資料 (Deterministic Quality Fallback)**：當重試達最大上限仍無法取得 AI 響應時，後端會自動攔截異常，並依據管理員填報的 `material` 與 `product` 大小寫與模糊特徵，快速渲染並返回一組預載的高品質確定性保底富化資料（包括預設處理建議 `defaultSuggestion`、常用關鍵字 `keywords`、預估單件重量 `estimatedWeight`、標準計量單位 `unit`、以及標準減碳係數 `carbonReduced`），保障管理工作不中斷。
+  - **沙盒環境資料庫同步防護與優雅降級 (Sandbox Database Sync Safe-Guard)**：富化成功後，後端會嘗試將富化的資料（預設建議、關鍵字、重量等）同步寫入/更新至 Firestore 的主檔。若後端在直寫資料庫時拋出權限或 quota 限制等 `dbError`，系統會自動在後端捕獲異常，打印「Sandbox database sync skipped gracefully」日誌，並照常向前端返回富化資料，同時為此時臨時生成的資料指派一組安全無害的臨時文件 ID（`ai_temp_` 開頭）。
+  - 此機制徹底隔離了第三方 API 狀態波動與 sandbox 雲端容器之特定安全性權限壁壘，賦予了專案極致的工藝韌性。
 
 ---
 
@@ -254,7 +292,8 @@ interface GANode {
    - `totalLoadWeightedDistance?: number;` // 總體載重與路程的乘積成本指引 (kg * km)
    - `totalRevenue?: number;` // 本趟計畫在瑞莎魺站點累計收購所獲得的總收入 (台幣元)
 
-3. **`MasterDataResource` (材質主檔) 新設耗能預估：**
+3. **`MasterDataResource` (材質主檔) 新設耗能預估與生命週期管理：**
+   - `expireAfterhHours?: number;` // 過期時數 (小時，0表示無限期，預設為0)
    提供高精度 $\alpha \times C_{\text{load}}$ 適應度運算。
    - `estimatedWeight?: number;` // 預估單個物理單位之重量 (kg/個 或 kg/公升 等，為可選填屬性，未設定則系統內部預設為 0.1 kg 保底)
 

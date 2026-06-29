@@ -2,7 +2,7 @@ import React from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { auth } from '../firebase';
-import { Navigation, Map, List, Bell, LogOut, PackageSearch, Route as RouteIcon, Shield, Coins, FileText } from 'lucide-react';
+import { Navigation, Map, List, Bell, LogOut, PackageSearch, Route as RouteIcon, Shield, Coins, FileText, Globe } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import raySpeedIcon from '@/assets/images/ray_speed_icon_v2_1779524761425.png';
 
@@ -88,6 +88,13 @@ export default function GoingHomeDashboard() {
             label="定期契約" 
             onClick={() => navigate('/recycleContract')} 
             active={window.location.pathname.startsWith('/recycleContract')}
+            activeThemeClass={themeColorClass}
+          />
+          <NavItem 
+            icon={<Globe />} 
+            label="公開徵收" 
+            onClick={() => navigate('/openForAll')} 
+            active={window.location.pathname === '/openForAll'} 
             activeThemeClass={themeColorClass}
           />
           {isAdmin && (

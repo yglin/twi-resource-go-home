@@ -144,15 +144,13 @@ export default function ContractDashboard() {
                 建立、簽署、管理長期、規律的回收派單契約。透過三方（梅克魚、勾引魟、瑞莎魺）共識。
               </p>
             </div>
-            {isGoingHome && (
-              <Button 
-                onClick={() => navigate('/newRecycleContract')}
-                className="bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold px-6 py-2.5 shadow-lg shadow-blue-500/20 active:scale-95 transition-all flex items-center gap-2 w-fit"
-              >
-                <Plus className="w-5 h-5" />
-                發起定期契約
-              </Button>
-            )}
+            <Button 
+              onClick={() => navigate('/newRecycleContract')}
+              className="bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold px-6 py-2.5 shadow-lg shadow-blue-500/20 active:scale-95 transition-all flex items-center gap-2 w-fit"
+            >
+              <Plus className="w-5 h-5" />
+              發起定期契約
+            </Button>
           </div>
         </div>
       </div>
@@ -287,14 +285,12 @@ export default function ContractDashboard() {
                   目前並無任何相關定期契約記錄。魟魚端用戶可在各單結算頁或右上方發起新長期週期的定期服務合約。
                 </p>
               </div>
-              {isGoingHome && (
-                <Button 
-                  onClick={() => navigate('/newRecycleContract')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold px-6 py-2"
-                >
-                  發起定期回收契約
-                </Button>
-              )}
+              <Button 
+                onClick={() => navigate('/newRecycleContract')}
+                className="bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold px-6 py-2"
+              >
+                發起定期回收契約
+              </Button>
             </CardContent>
           </Card>
         ) : (

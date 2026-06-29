@@ -118,3 +118,39 @@ export function subscribeToQuery<T>(
     onError(error);
   });
 }
+
+// Client-side helper to trigger the backend AI Enrichment function
+export async function enrichResourceWithAI(material: string, product: string): Promise<{
+  success: boolean;
+  docId: string;
+  data: {
+    material: string;
+    product: string;
+    defaultSuggestion: string;
+    keywords: string[];
+    unit: string;
+    carbonReduced: number;
+    expireAfterhHours: number;
+    estimatedWeight: number;
+  };
+}> {
+  try {
+    const response = await fetch('/api/resources/ai-enrich', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ material, product }),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.error || errData.details || '自動分析與補充欄位失敗');
+    }
+
+    return await response.json();
+  } catch (error: any) {
+    console.error('enrichResourceWithAI failed:', error);
+    throw error;
+  }
+}

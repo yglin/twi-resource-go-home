@@ -35,6 +35,7 @@ export default function NewRecycleContract() {
 
   // Options loaded from Firestore
   const [makersList, setMakersList] = useState<UserProfile[]>([]);
+  const [goingHomesList, setGoingHomesList] = useState<UserProfile[]>([]);
   const [recyclersList, setRecyclersList] = useState<UserProfile[]>([]);
   const [masterResources, setMasterResources] = useState<MasterDataResource[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -43,6 +44,7 @@ export default function NewRecycleContract() {
 
   // Form Fields
   const [selectedMakerId, setSelectedMakerId] = useState('');
+  const [selectedGoingHomeId, setSelectedGoingHomeId] = useState('');
   const [selectedRecyclerId, setSelectedRecyclerId] = useState('');
   
   const [material, setMaterial] = useState('');
@@ -71,9 +73,11 @@ export default function NewRecycleContract() {
         } as UserProfile));
 
         const activeMakers = allUsers.filter(u => u.roles?.includes('MAKER_FISH'));
+        const activeGoingHomes = allUsers.filter(u => u.roles?.includes('GOING_HOME'));
         const activeRecyclers = allUsers.filter(u => u.roles?.includes('RECYCLER'));
 
         setMakersList(activeMakers);
+        setGoingHomesList(activeGoingHomes);
         setRecyclersList(activeRecyclers);
 
         // Pre-fill recycler with the creator (Ray is also a Recycler sometimes)
@@ -83,8 +87,16 @@ export default function NewRecycleContract() {
           setSelectedRecyclerId(activeRecyclers[0].id);
         }
 
-        if (activeMakers.length > 0) {
+        if (profile?.roles?.includes('MAKER_FISH') && user) {
+          setSelectedMakerId(user.uid);
+        } else if (activeMakers.length > 0) {
           setSelectedMakerId(activeMakers[0].id);
+        }
+
+        if (profile?.roles?.includes('GOING_HOME') && user) {
+          setSelectedGoingHomeId(user.uid);
+        } else if (activeGoingHomes.length > 0) {
+          setSelectedGoingHomeId(activeGoingHomes[0].id);
         }
 
         // Load master data resources
@@ -125,6 +137,9 @@ export default function NewRecycleContract() {
             // Find recycler partner details if any
             if (src.selectedGoingHomeId && activeRecyclers.some(r => r.id === src.selectedGoingHomeId)) {
               setSelectedRecyclerId(src.selectedGoingHomeId);
+            }
+            if (src.selectedGoingHomeId && activeGoingHomes.some(h => h.id === src.selectedGoingHomeId)) {
+              setSelectedGoingHomeId(src.selectedGoingHomeId);
             }
             toast.success('已成功自歷史物資單匯入契約預先資訊！');
           }
@@ -181,7 +196,12 @@ export default function NewRecycleContract() {
     g.product.trim().toLowerCase() === product.trim().toLowerCase()
   );
   const unitPrice = matchedGuide?.price ?? 0;
-  const totalPrice = unitPrice * quantity;
+  const matchedResource = masterResources.find(mr => 
+    mr.material.trim().toLowerCase() === material.trim().toLowerCase() && 
+    mr.product.trim().toLowerCase() === product.trim().toLowerCase()
+  );
+  const estimatedWeight = matchedResource?.estimatedWeight ?? 0.1;
+  const totalPrice = unitPrice * quantity * estimatedWeight;
 
   const handleMaterialChange = (newMaterial: string) => {
     setMaterial(newMaterial);
@@ -224,12 +244,24 @@ export default function NewRecycleContract() {
       toast.error('請選擇合作資源梅克魚（資材供給者）');
       return;
     }
+    if (!selectedGoingHomeId) {
+      toast.error('請選擇合作資源勾引魟（資材運送者）');
+      return;
+    }
     if (!selectedRecyclerId) {
       toast.error('請選擇合作資源瑞莎魺（資材收購端）');
       return;
     }
     if (selectedRecyclerId === selectedMakerId) {
       toast.error('梅克魚與瑞莎魺不能為同一個帳號。');
+      return;
+    }
+    if (selectedGoingHomeId === selectedMakerId) {
+      toast.error('梅克魚與勾引魟不能為同一個帳號。');
+      return;
+    }
+    if (selectedGoingHomeId === selectedRecyclerId) {
+      toast.error('瑞莎魺與勾引魟不能為同一個帳號。');
       return;
     }
 
@@ -271,7 +303,7 @@ export default function NewRecycleContract() {
 
       const contractId = await createContract({
         makerFishId: selectedMakerId,
-        goingHomeId: user?.uid || '',
+        goingHomeId: selectedGoingHomeId,
         recyclerId: selectedRecyclerId,
         templateRecord: {
           materialCategory: material,
@@ -329,7 +361,7 @@ export default function NewRecycleContract() {
                 規劃新定期回收契約
               </CardTitle>
               <CardDescription className="text-slate-500 font-sans mt-1 text-xs leading-relaxed">
-                發起定期回收契約，系統會自動在指定週期，產出符合三方合議之首期及續期交貨單，並由您（資源勾引魟）專屬收運與收購，省去手動發需求時間。
+                發起定期回收契約，系統會自動在指定週期，產出符合三方合議之首期及續期交貨單，由約定夥伴專屬收運與收購，省去手動發需求時間。
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6 md:p-8">
@@ -341,7 +373,7 @@ export default function NewRecycleContract() {
                     1. 契約參署夥伴設定
                   </h3>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="maker-select" className="text-xs font-bold text-slate-700 flex items-center gap-1">
                         <User className="w-3.5 h-3.5 text-cyan-500" />
@@ -355,6 +387,23 @@ export default function NewRecycleContract() {
                       >
                         {makersList.map(m => (
                           <option key={m.id} value={m.id}>{m.displayName} ({m.address || '未設定地址'})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="goinghome-select" className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                        <User className="w-3.5 h-3.5 text-indigo-500" />
+                        資材運送者 (資源勾引魟)
+                      </Label>
+                      <select 
+                        id="goinghome-select"
+                        value={selectedGoingHomeId}
+                        onChange={e => setSelectedGoingHomeId(e.target.value)}
+                        className="w-full h-11 px-3 bg-white border border-slate-200 rounded-xl text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-medium"
+                      >
+                        {goingHomesList.map(h => (
+                          <option key={h.id} value={h.id}>{h.displayName} ({h.address || '自營運送'})</option>
                         ))}
                       </select>
                     </div>
@@ -517,12 +566,17 @@ export default function NewRecycleContract() {
                           </span>
                         </p>
                         <p className="flex items-center gap-2">
-                          <span className="text-slate-400">瑞莎魺單位價格：</span>
+                          <span className="text-slate-400">瑞莎魺收購單價：</span>
                           <span className="font-bold text-amber-600 font-mono text-sm">
                             {selectedRecycler ? (matchedGuide ? `$${unitPrice} 元` : '未載明單價（以 $0 元計）') : 'N/A'}
                           </span>
-                          {matchedGuide && <span className="text-[10px] text-slate-400">/ {unit || '個'}</span>}
+                          {matchedGuide && <span className="text-[10px] text-slate-400">/ 公斤</span>}
                         </p>
+                        {matchedGuide && (
+                          <p className="text-[10px] text-slate-400">
+                            計算說明：數量 {quantity} {unit || '個'} × 預估單件重量 {estimatedWeight} 公斤 = 總重 {(quantity * estimatedWeight).toFixed(2)} 公斤 × {unitPrice} 元/公斤
+                          </p>
+                        )}
                       </div>
                       
                       <div className="bg-white/85 backdrop-blur-sm shadow-sm border border-amber-100/70 rounded-xl px-4 py-2 text-center sm:text-right min-w-[150px]">
