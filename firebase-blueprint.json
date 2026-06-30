@@ -54,7 +54,8 @@
         "selectedGoingHomeId": { "type": "string" },
         "status": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "statusUpdatedAt": { "type": "string", "format": "date-time" }
+        "statusUpdatedAt": { "type": "string", "format": "date-time" },
+        "brands": { "type": "array", "items": { "type": "string" }, "description": "List of manufacturer brands identified from the recyclable resources" }
       },
       "required": ["materialCategory", "productCategory", "quantity", "imageUrl", "address", "coordinates", "makerFishId", "status", "createdAt"]
     },
@@ -235,6 +236,15 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["senderId", "senderName", "senderRole", "content", "createdAt"]
+    },
+    "Brand": {
+      "title": "Brand",
+      "description": "Manufacturer brands recognized from recycling records",
+      "type": "object",
+      "properties": {
+        "recoveryRecords": { "type": "array", "items": { "type": "string" }, "description": "Associated recovery record IDs" }
+      },
+      "required": ["recoveryRecords"]
     }
   },
   "firestore": {
@@ -281,6 +291,10 @@
     "recycleContracts/{contractId}/messages/{messageId}": {
       "schema": "ContractMessage",
       "description": "Discussion and chat logs of a contract"
+    },
+    "brand/{brandId}": {
+      "schema": "Brand",
+      "description": "Recycling records categorized by product/manufacturer brands"
     }
   }
 }

@@ -134,12 +134,16 @@
 1. **精準比對 (In-case absolute match)**: 大小寫/去空格後，確認是否能與主檔重疊，若是則以主檔之大小寫名稱覆蓋。
 2. **模糊子串匹配 (Fuzzy logic match)**: 比對細項產品的包含關係。如 `category` 辨識為 `寶特瓶`，主檔為 `高級PET寶特瓶`，系統後端會自動比對將其收斂鎖定為主檔中定義的標準項與保底 DefaultSuggestion，確保下拉選單能精準鎖定。
 
-### 5. 零斷點高容錯保底機制 (Robust Image Analyzer Fallback)
-若網路異常、超出 Quota、或 API Key 未妥善設定時，後端會自動攔截 exception 並進入 **自適應高感知快取器**，依隨機分配邏輯生成下列高品質標準數據物件返還前端，對用戶維持零中斷、超高流暢體驗：
-* *寶特瓶物件* (數量 10 / 請清洗洗淨壓扁)
-* *紙箱包裝* (數量 4 / 請撕除封箱膠帶平整綑綁)
-* *易開罐等* (數量 15 / 請清水沖乾壓扁以便收運)
-* *玻璃罐等* (數量 2 / 請洗淨瀝乾避免破碎)
+### 5. 零斷點多模型容錯保底機制 (Robust Multi-Model Analyzer Fallback)
+為了防範暫時性高負載（503 UNAVAILABLE）與免費額度超限（429 RESOURCE_EXHAUSTED）等異常中斷使用者操作體驗，系統後端配置了多模型重試與自動降級保底機制：
+1. **多模型退避重試（Multi-Model Retry Loop）**：系統預備了 `gemini-3.5-flash` 與 `gemini-flash-latest` 雙模型。遇到異常時，系統會先以 `gemini-3.5-flash` 重試兩次（每次間隔1秒），若失敗則自動切換至 `gemini-flash-latest` 再進行兩次重試。
+2. **高感知智慧保底（Heuristic Fallback Strategy）**：若所有重試與模型皆失敗，系統會攔截異常並依據傳入之 `masterData` 主檔快照自動推演。如果主檔有預載項目，會直接提取首個有效資材的特徵、預設建議與計量單位作為返回值；若主檔為空，則使用高品質通用保底資材數據。
+3. **後端標識標記（isFallback 標記）與前端 Dialog 提示對話框**：返回的 JSON 物件中會包含一個 `isFallback: true` 的額外屬性，提示前端目前使用的是模擬辨識結果（或遭遇 API 暫時不可用等錯誤）。當前端偵測到 `isFallback === true` 或發生 API 連線錯誤/辨識異常時，系統會直接跳出對話視窗提示使用者以下訊息：
+   * **標題**：AI 辨識提醒
+   * **內容**：
+     <h3>AI辨識失敗，請手動輸入資料</h3>
+     <p>本網站目前由看守台灣協會開發並維護，線上AI資源有限，如果您認同本網站的理念，請<a href="https://www.taiwanwatch.org.tw/donation" target="__blank">支持看守台灣</a></p>
+   此機制保證使用者在 AI 資源不足或高負載 503 時仍能流暢手動填寫物資申報，同時傳達看守台灣協會之永續運營與支持訴求。
 
 ---
 
@@ -523,6 +527,56 @@ $$\text{Fitness} = \text{TotalRevenue} - \left( \alpha \times \text{TotalLoadWei
     1. **合約本體變更**：更新狀態（若為重啟，則 signatures 重設為 `Pending`，原發起重啟者可自動設為 `Approved`）。
     2. **寫入稽核歷史**：在 `history` 子集合寫入一筆詳實的 Audit 記錄，記錄精確時間、姓名、角色、以及當下寫下的附言理由。
     3. **留言版提醒**：在合約的 `messages` 留言集合中，同步非同步新增一則由 **`System` 身份** 產出的置頂系統對話訊息（例：`「[系統廣播] 資源瑞莎魺 瑞莎阿明 已於 14:32 暫停了此合約，原因：『店面歲修兩週』。」`）。
+
+---
+
+## 陸、 公開徵收市場進階多維度篩選器與安全過濾 (Open For All Public Market Advanced Filtering & Security Filters)
+
+為了提昇公開案件媒合效率，並在保障隱私的限制下，供資源勾引魟（以及一般大眾、訪客）快速篩選最相符的案件，`/openForAll` 頁面實作了多重聯集與交集過濾器：
+
+### 1. 核心過濾指標 (Core Filtering Dimensions)
+* **資材與產品分類過濾 (Material & Product Category Filter)**：
+  - 系統自動解析並匯整當前所有 `OPEN_FOR_ALL` 狀態物資中不重複的材質大類與細項產品名稱。
+  - 使用者可利用下拉選單精確交叉篩選特定的材質（如「塑膠」）或細項（如「寶特瓶」），大幅降低瀏覽雜訊。
+* **預估價格區間過濾 (Price Range Filter)**：
+  - 提供 `minPrice` 與 `maxPrice` 雙向滑動/手動輸入區間，過濾依據公式計算出的各記錄「預估收購價格」。
+* **回收期效過濾 (Expiration Datetime Filter)**：
+  - 整合 `expirationDate` 欄位。使用者可指定一特定「到期日期時間」，系統自動過濾並高亮顯示「在此時間之後才到期」的未失效案件。
+* **特定地址與定位中心半徑搜尋 (Custom Anchor Location Radius Filter)**：
+  - 使用者可輸入特定地址或使用當前定位 coordinates 取得地圖中心，並指定一特定的半徑（公里）。系統會利用 Haversine 球面距離公式計算記錄與中心之實體距離，過濾保留指定半徑範圍內之案件。
+* **瑞莎魺覆蓋半徑智慧過濾 (Recycler Radius Compatibility Filter)**：
+  - **智慧關聯分析**：此過濾器可設定「瑞莎魺最大距離」（如 5 公里、10 公里）。
+  - **過濾演算邏輯**：系統會遍歷每一個回收記錄，計算系統中登記之所有「資源瑞莎魺（`RECYCLER`）」之位置與此回收記錄放置地之直線距離。若至少有一家符合收受該記錄品類之瑞莎魺，其與該案件的直線距離小於或等於設定的半徑，該筆回收記錄才會被保留展示。這能極大保障勾引魟收貨後可以就近快速卸貨變現，防止物流死胡同。
+
+### 2. 匿名化與 Firestore 安全性存取限制 (Anonymization & Auth Sandboxing)
+* **訪客安全性防護**：本頁面支援訪客免登入唯讀瀏覽（不洩漏任何使用者的敏感電話與精確通訊地址）。
+* **Firestore 存取優雅降級**：當大眾使用者或訪客未登入時，前端絕對禁止直接去 `get` 或 `list` 集合 `users` (否則將引發 Firebase `permission-denied` 安全性阻斷)。系統採用優雅降級邏輯，此時會將「瑞莎魺覆蓋半徑過濾」依賴 of `users` 讀取機制降級跳過（或提示使用者需要登入），並將列表以去識別化的方式（僅展示大類、概略地段、預估重量、預估價格）進行高質感渲染。這保證了 100% 的 Firestore Rules 安全相容性與無錯誤高可用性。
+
+---
+
+## 柒、 品牌統計演算法、安全性規則修復與後台整合 (Brand Statistics Heuristics, Security Rules Repair & Admin Integration)
+
+### 1. 產品品牌辨識與資料庫安全權限 (Product Brand Identification & Security Permissions)
+* **安全漏洞修補**：在物資回收過程中，系統允許使用者（梅克魚或勾引魟）為 `recoveryRecords` 關聯特定產品品牌標籤（例如 `Coca-Cola`, `Sprite`, `原萃`）。早期因 `firestore.rules` 缺乏對獨立 `brand` 集合的安全寫入權限，導致在提交含品牌標籤的回收單時，引發 `Missing or insufficient permissions` 的安全性阻斷。
+* **安全規則強化**：更新了 `firestore.rules` 檔案，為 `/brand/{brandId}` 集合配置了細粒度存取機制：
+  - **讀取 (`read`)**：任何已登入的使用者皆可讀取，支援申報與分析時的實時匹配。
+  - **寫入 (`create`, `update`)**：任何已登入使用者皆可新增或更新，以便在申報回收記錄時能原子化更新關聯品牌。
+  - **刪除 (`delete`)**：限系統管理員 (`SYSTEM_ADMIN`) 權限執行，保障基礎資產的安全性。
+
+### 2. 品牌統計動態融合演算法 (Dynamic Merging Heuristics of Brand Stats)
+為了避免因為分散式寫入時差、網路震盪或歷史髒資料導致品牌統計漏記 or 不準確，系統在管理端實作了 **雙向動態融合與去重演算法 (Dynamic Multi-Source Merging Heuristics)**：
+* **第一數據源：`brand` 集合 seed 載入**：首先載入並訂閱所有的 `brand` 集合文檔，獲取各品牌自主登記的 `recoveryRecords` 關聯列表作為種子。
+* **第二數據源：`recoveryRecords` 實時動態掃描**：併行掃描所有的 `recoveryRecords` 紀錄。若發現紀錄中的 `brands` 陣列包含對應品牌，即使在 `brand` 集合文檔中漏記，系統會自動在前端將該 Record ID 追加入該品牌的去重 `Set` 中。
+* **去重與即時計算**：使用 `Map<string, Set<string>>` 對兩組來源的 Record IDs 進行聯集去重與計數，確保計算出的「總回收關聯紀錄數」達到 100% 精準度，並將品牌按「關聯回收次數」降序（由多到少）進行排行。
+
+### 3. 管理端品牌後台交互 (Admin Brand Dashboard Interactions)
+* **品牌指標卡 (Brand Metric Cards)**：
+  - **已註冊品牌數**：展出所有已在 `brand` 集合或物資中被檢索到的獨立品牌個數。
+  - **總回收關聯紀錄數**：加總所有品牌去重後的關聯回收紀錄次數之和。
+  - **最活躍回收品牌**：高亮呈現回收次數最高的品牌名稱，並配有 title 屬性完整展示 Brand ID 詳情。
+* **品牌關聯歷史履歷對話框 (Brand Associated Record History Modal)**：
+  - 點擊「檢視關聯記錄」按鈕，系統會以管理員權限發起 `array-contains` 查詢，將該品牌在 `recoveryRecords` 中的所有履歷（物資照片、材質品類、數量、履約狀態與建立時戳）拉取出來。
+  - 履歷列表以 `createdAt` 降序垂直排列，為管理端提供直觀的品牌碳排減碳貢獻與回收追蹤視野。
 
 ---
 

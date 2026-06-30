@@ -291,6 +291,15 @@ export default function RecordDetails() {
                 <div>
                   <h1 className="text-3xl font-bold text-slate-900">{record.productCategory}</h1>
                   <p className="text-slate-500 font-medium text-lg">{record.materialCategory}</p>
+                  {record.brands && record.brands.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-3 animate-in fade-in duration-300">
+                      {record.brands.map((b, idx) => (
+                        <Badge key={idx} variant="secondary" className="bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-full px-2.5 py-0.5 text-xs font-semibold border border-slate-200 shadow-sm">
+                          🏷️ {b}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right flex flex-col items-end">
                   <div className="text-center font-bold">
@@ -486,9 +495,9 @@ export default function RecordDetails() {
         </div>
 
         {/* Action / Status Section */}
-        <div className="space-y-6">
+        <div className="space-y-6 md:sticky md:top-8 self-start">
           {(record.status === RecordStatus.JUST_BORN || record.status === RecordStatus.OPEN_FOR_ALL) && (
-            <Card className="rounded-3xl border-slate-200 shadow-sm sticky top-8">
+            <Card className="rounded-3xl border-slate-200 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-lg">尋找勾引魟</CardTitle>
                 <CardDescription>選擇附近的勾引魟來收運此物資</CardDescription>
@@ -523,7 +532,7 @@ export default function RecordDetails() {
                         <div key={ray.id} className="p-4 rounded-2xl border border-slate-100 hover:border-cyan-200 hover:bg-cyan-50 transition-all cursor-pointer group" onClick={() => setConfirmingRay(ray)}>
                           <div className="flex items-center gap-3 mb-3">
                             <Avatar className="h-10 w-10">
-                              <AvatarImage src={ray.photoURL} />
+                              <AvatarImage src={ray.photoURL || undefined} />
                               <AvatarFallback>{ray.displayName?.charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div>
@@ -570,11 +579,12 @@ export default function RecordDetails() {
                       💡 找不到合適的勾引魟？您也可以將此單「公開徵收」，讓附近所有符合材質規格的勾引魟皆能主動應徵接單！
                     </div>
                     <Button 
+                      id="btn-open-for-all"
                       onClick={handleMakeOpenForAll}
                       className="w-full rounded-full bg-cyan-600 hover:bg-cyan-700 font-bold h-10 text-xs text-white shadow-md flex items-center justify-center gap-1.5"
                     >
                       <Bell className="w-4 h-4 animate-pulse" />
-                      將此回收記錄公開徵收
+                      公開徵收
                     </Button>
                   </div>
                 )}
@@ -582,7 +592,7 @@ export default function RecordDetails() {
             </Card>
           )}
 
-          <Card className="rounded-3xl border-slate-200 bg-white shadow-sm overflow-hidden sticky top-8">
+          <Card className="rounded-3xl border-slate-200 bg-white shadow-sm overflow-hidden">
             <div className="p-6">
               <h3 className="font-bold text-slate-900 mb-4">收運進度</h3>
               <div className="relative pl-8 space-y-8 before:absolute before:left-3.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
@@ -634,7 +644,7 @@ export default function RecordDetails() {
             <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl">
               <div className="flex items-center gap-2.5 mb-2.5">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={confirmingRay?.photoURL} />
+                  <AvatarImage src={confirmingRay?.photoURL || undefined} />
                   <AvatarFallback>{confirmingRay?.displayName?.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div>

@@ -96,10 +96,36 @@ const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?
 };
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const cached = localStorage.getItem('cached_auth_user');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    try {
+      const cached = localStorage.getItem('cached_auth_profile');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cached_auth_isAdmin') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      return !localStorage.getItem('cached_auth_user');
+    } catch {
+      return true;
+    }
+  });
 
   const fetchProfile = async (uid: string, email: string | null, googleUser?: User) => {
     let data = await getDocument<UserProfile>('users', uid);
@@ -133,18 +159,47 @@ export default function App() {
     
     setProfile(data);
     setIsAdmin(adminStatus);
+
+    // Save profile and admin status to cache
+    try {
+      if (data) {
+        localStorage.setItem('cached_auth_profile', JSON.stringify(data));
+      }
+      localStorage.setItem('cached_auth_isAdmin', String(adminStatus));
+    } catch (e) {
+      console.warn('Failed to cache profile to localStorage:', e);
+    }
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setLoading(true);
+      const hasCache = !!localStorage.getItem('cached_auth_user');
+      // If no cache, set loading to true while verifying.
+      // If there is cache, we do not set loading to true to avoid a loading screen flash.
+      if (!hasCache) {
+        setLoading(true);
+      }
       try {
         setUser(u);
         if (u) {
+          // Cache serializable user properties
+          const serializedUser = {
+            uid: u.uid,
+            email: u.email,
+            displayName: u.displayName,
+            photoURL: u.photoURL,
+            emailVerified: u.emailVerified,
+          };
+          localStorage.setItem('cached_auth_user', JSON.stringify(serializedUser));
+
           await fetchProfile(u.uid, u.email, u);
           // Run background scheduled evaluations silently
           evaluateAndGenerateScheduledRecords().catch(err => console.error("Scheduler Error:", err));
         } else {
+          // Clear cache on logout
+          localStorage.removeItem('cached_auth_user');
+          localStorage.removeItem('cached_auth_profile');
+          localStorage.removeItem('cached_auth_isAdmin');
           setProfile(null);
           setIsAdmin(false);
         }

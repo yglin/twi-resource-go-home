@@ -711,7 +711,7 @@ export default function ContractDetails() {
               <div className="flex justify-between items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10 ring-2 ring-blue-500/20">
-                    <AvatarImage src={rayProf?.photoURL} />
+                    <AvatarImage src={rayProf?.photoURL || undefined} />
                     <AvatarFallback>{rayProf?.displayName?.[0] || '魟'}</AvatarFallback>
                   </Avatar>
                   <div>
@@ -732,7 +732,7 @@ export default function ContractDetails() {
               <div className="flex justify-between items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10 ring-2 ring-cyan-400/20">
-                    <AvatarImage src={makerProf?.photoURL} />
+                    <AvatarImage src={makerProf?.photoURL || undefined} />
                     <AvatarFallback>{makerProf?.displayName?.[0] || '魚'}</AvatarFallback>
                   </Avatar>
                   <div>
@@ -753,7 +753,7 @@ export default function ContractDetails() {
               <div className="flex justify-between items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10 ring-2 ring-amber-500/20">
-                    <AvatarImage src={recyclerProf?.photoURL} />
+                    <AvatarImage src={recyclerProf?.photoURL || undefined} />
                     <AvatarFallback>{recyclerProf?.displayName?.[0] || '魺'}</AvatarFallback>
                   </Avatar>
                   <div>

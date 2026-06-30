@@ -276,6 +276,15 @@ export default function AvailableRequests() {
                         </div>
                       </div>
                       <h3 className="font-bold text-lg text-slate-900">{request.productCategory}</h3>
+                      {request.brands && request.brands.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5 justify-start">
+                          {request.brands.map((b, idx) => (
+                            <Badge key={idx} variant="secondary" className="bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/50 rounded-full px-2 py-0 h-4 text-[9px] font-semibold">
+                              🏷️ {b}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       <div className="space-y-2 mt-4 text-xs text-slate-500">
                         <div className="flex items-center gap-2">
                           <MapPin className="w-3 h-3 text-blue-500" />
@@ -468,6 +477,15 @@ export default function AvailableRequests() {
                             </div>
                           </div>
                           <h3 className="font-bold text-lg text-slate-900">{request.productCategory}</h3>
+                          {request.brands && request.brands.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5 justify-start">
+                              {request.brands.map((b, idx) => (
+                                <Badge key={idx} variant="secondary" className="bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/50 rounded-full px-2 py-0 h-4 text-[9px] font-semibold">
+                                  🏷️ {b}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                           <p className="text-[11px] text-slate-500 font-bold mt-1 bg-slate-100 rounded px-2.5 py-0.5 w-fit">
                             材質分類: {request.materialCategory}
                           </p>

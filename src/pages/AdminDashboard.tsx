@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { db, auth } from '../firebase';
-import { collection, query, onSnapshot, doc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, deleteDoc, writeBatch, getDocs, where } from 'firebase/firestore';
 import { createDocument, updateDocument, enrichResourceWithAI } from '../services/firestoreService';
 import { MasterDataResource, NewMasterDataResource, UserProfile } from '../types';
 import { SystemLog, LogLevel, logToSystem } from '../services/logger';
@@ -31,7 +31,9 @@ import {
   RefreshCw,
   Sparkles,
   Check,
-  Users
+  Users,
+  Tag,
+  BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -63,8 +65,16 @@ export default function AdminDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
 
-  // Active Tab: 'resources' | 'suggestions' | 'logs' | 'users'
-  const [activeTab, setActiveTab] = useState<'resources' | 'suggestions' | 'logs' | 'users'>('resources');
+  // Active Tab: 'resources' | 'suggestions' | 'logs' | 'users' | 'brands'
+  const [activeTab, setActiveTab] = useState<'resources' | 'suggestions' | 'logs' | 'users' | 'brands'>('resources');
+
+  // Brand Statistics State
+  const [brandsList, setBrandsList] = useState<{ id: string; recoveryRecords: string[] }[]>([]);
+  const [brandsLoading, setBrandsLoading] = useState(true);
+  const [brandSearchQuery, setBrandSearchQuery] = useState('');
+  const [selectedBrand, setSelectedBrand] = useState<{ id: string; recoveryRecords: string[] } | null>(null);
+  const [brandRecords, setBrandRecords] = useState<any[]>([]);
+  const [brandRecordsLoading, setBrandRecordsLoading] = useState(false);
 
   // User Management State
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -215,6 +225,134 @@ export default function AdminDashboard() {
     return unsubscribeLogs;
   }, []);
 
+  // Load Brands Statistics dynamically by merging 'brand' collection and 'recoveryRecords'
+  useEffect(() => {
+    let brandsFromDb: { id: string; recoveryRecords: string[] }[] = [];
+    let recordsFromDb: any[] = [];
+    let brandsLoaded = false;
+    let recordsLoaded = false;
+
+    const checkAndCombine = () => {
+      if (!brandsLoaded || !recordsLoaded) return;
+
+      const mergedMap = new Map<string, Set<string>>();
+
+      // 1. Seed with brands collection
+      brandsFromDb.forEach(b => {
+        if (!mergedMap.has(b.id)) {
+          mergedMap.set(b.id, new Set(b.recoveryRecords));
+        } else {
+          b.recoveryRecords.forEach(id => mergedMap.get(b.id)!.add(id));
+        }
+      });
+
+      // 2. Scan all recovery records to ensure 100% accurate count
+      recordsFromDb.forEach(record => {
+        if (Array.isArray(record.brands)) {
+          record.brands.forEach((b: string) => {
+            const trimmed = b.trim();
+            if (trimmed) {
+              if (!mergedMap.has(trimmed)) {
+                mergedMap.set(trimmed, new Set());
+              }
+              mergedMap.get(trimmed)!.add(record.id);
+            }
+          });
+        }
+      });
+
+      // Convert back to list
+      const data = Array.from(mergedMap.entries()).map(([brandName, idSet]) => ({
+        id: brandName,
+        recoveryRecords: Array.from(idSet)
+      }));
+
+      // Sort brands by the number of associated recovery records descending, then alphabetically
+      data.sort((a, b) => {
+        const diff = (b.recoveryRecords?.length || 0) - (a.recoveryRecords?.length || 0);
+        if (diff !== 0) return diff;
+        return a.id.localeCompare(b.id);
+      });
+
+      setBrandsList(data);
+      setBrandsLoading(false);
+    };
+
+    const qBrands = query(collection(db, 'brand'));
+    const unsubscribeBrands = onSnapshot(qBrands, (snapshot) => {
+      brandsFromDb = snapshot.docs.map(doc => {
+        const item = doc.data();
+        return {
+          id: doc.id,
+          recoveryRecords: Array.isArray(item.recoveryRecords) ? item.recoveryRecords : []
+        };
+      });
+      brandsLoaded = true;
+      checkAndCombine();
+    }, (error) => {
+      console.error("Failed to load brands:", error);
+      brandsLoaded = true;
+      checkAndCombine();
+    });
+
+    const qRecords = query(collection(db, 'recoveryRecords'));
+    const unsubscribeRecords = onSnapshot(qRecords, (snapshot) => {
+      recordsFromDb = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      recordsLoaded = true;
+      checkAndCombine();
+    }, (error) => {
+      console.error("Failed to load recovery records for brands:", error);
+      recordsLoaded = true;
+      checkAndCombine();
+    });
+
+    return () => {
+      unsubscribeBrands();
+      unsubscribeRecords();
+    };
+  }, []);
+
+  // Fetch detailed recovery records for the selected brand
+  useEffect(() => {
+    if (!selectedBrand) {
+      setBrandRecords([]);
+      return;
+    }
+    setBrandRecordsLoading(true);
+    const fetchBrandRecords = async () => {
+      try {
+        const q = query(
+          collection(db, 'recoveryRecords'),
+          where('brands', 'array-contains', selectedBrand.id)
+        );
+        const snapshot = await getDocs(q);
+        const data = snapshot.docs.map(doc => {
+          const item = doc.data();
+          return {
+            id: doc.id,
+            ...item
+          };
+        });
+        // Sort by createdAt descending
+        data.sort((a: any, b: any) => {
+          const tA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+          const tB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+          return tB - tA;
+        });
+        setBrandRecords(data);
+      } catch (err) {
+        console.error("Failed to fetch brand records:", err);
+        toast.error("讀取該品牌的回收記錄失敗");
+      } finally {
+        setBrandRecordsLoading(false);
+      }
+    };
+    fetchBrandRecords();
+  }, [selectedBrand]);
+
   const handleGoBack = () => {
     const target = profile?.roles?.includes('MAKER_FISH') ? '/maker' : '/going-home';
     navigate(target);
@@ -285,19 +423,51 @@ export default function AdminDashboard() {
   };
 
   const handleResourceDelete = async (id: string) => {
-    if (window.confirm('確定要刪除此資源定義嗎？')) {
-      try {
-        await deleteDoc(doc(db, 'masterData_resources', id));
-        toast.success('刪除成功');
-      } catch (err) {
-        toast.error('刪除失敗');
+    triggerConfirm(
+      '確定要刪除此資源定義嗎？',
+      '此操作將會永久刪除此資源定義，且無法復原。',
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'masterData_resources', id));
+          toast.success('刪除成功');
+        } catch (err) {
+          toast.error('刪除失敗');
+        }
       }
-    }
+    );
   };
 
   // Suggestion review and import methods
   const [selectedSuggestion, setSelectedSuggestion] = useState<NewMasterDataResource | null>(null);
   const [isSuggestionDialogOpen, setIsSuggestionDialogOpen] = useState(false);
+
+  // Reusable confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void | Promise<void>;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (title: string, description: string, onConfirm: () => void | Promise<void>) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      description,
+      onConfirm: async () => {
+        try {
+          await onConfirm();
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
 
   const openReviewSuggestionDialog = (sug: NewMasterDataResource) => {
     setSelectedSuggestion(sug);
@@ -355,35 +525,43 @@ export default function AdminDashboard() {
   };
 
   const handleSuggestionReject = async (id: string) => {
-    if (window.confirm('確定要拒絕並刪除這筆使用者全新資材建議提報嗎？')) {
-      try {
-        await deleteDoc(doc(db, 'newMasterData_resources', id));
-        toast.info('已刪除並婉拒該建議。');
-        await logToSystem(LogLevel.WARN, `管理員退回並刪除了使用者資材建議`, 'AdminDashboard', { suggestionId: id });
-      } catch (err: any) {
-        toast.error(`操作失敗: ${err.message}`);
+    triggerConfirm(
+      '確定要拒絕並刪除這筆使用者全新資材建議提報嗎？',
+      '此操作將會退回該提報，並從佇列中刪除，且無法復原。',
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'newMasterData_resources', id));
+          toast.info('已刪除並婉拒該建議。');
+          await logToSystem(LogLevel.WARN, `管理員退回並刪除了使用者資材建議`, 'AdminDashboard', { suggestionId: id });
+        } catch (err: any) {
+          toast.error(`操作失敗: ${err.message}`);
+        }
       }
-    }
+    );
   };
 
   // Clear Logs Method
   const handleClearAllLogs = async () => {
-    if (window.confirm('警告：確定要清空系統中所有的運作日誌記錄嗎？此步驟將會徹底清除日誌資料庫。')) {
-      setClearingLogs(true);
-      try {
-        const querySnapshot = await getDocs(collection(db, 'systemLogs'));
-        const batch = writeBatch(db);
-        querySnapshot.docs.forEach((doc) => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
-        toast.success('系統日誌已全數清空');
-      } catch (error: any) {
-        toast.error(`清除日誌失敗: ${error.message}`);
-      } finally {
-        setClearingLogs(false);
+    triggerConfirm(
+      '確認清除所有日誌',
+      '警告：確定要清空系統中所有的運作日誌記錄嗎？此步驟將會徹底清除日誌資料庫。',
+      async () => {
+        setClearingLogs(true);
+        try {
+          const querySnapshot = await getDocs(collection(db, 'systemLogs'));
+          const batch = writeBatch(db);
+          querySnapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          toast.success('系統日誌已全數清空');
+        } catch (error: any) {
+          toast.error(`清除日誌失敗: ${error.message}`);
+        } finally {
+          setClearingLogs(false);
+        }
       }
-    }
+    );
   };
 
   // Filter and search computation for logs
@@ -554,6 +732,16 @@ export default function AdminDashboard() {
           >
             <Users className="w-5 h-5" />
             <span>使用者管理</span>
+          </button>
+
+          <button 
+            type="button"
+            id="btn-nav-brands"
+            onClick={() => setActiveTab('brands')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors cursor-pointer text-left ${activeTab === 'brands' ? 'bg-cyan-600 text-white font-semibold' : 'hover:bg-slate-800 text-slate-400'}`}
+          >
+            <Tag className="w-5 h-5" />
+            <span>品牌統計</span>
           </button>
           
           <button 
@@ -1015,7 +1203,7 @@ export default function AdminDashboard() {
                           >
                             <TableCell className="font-semibold text-slate-800">
                               <div className="flex items-center gap-2">
-                                {u.photoURL ? (
+                                {u.photoURL && u.photoURL !== "" ? (
                                   <img src={u.photoURL} alt={u.displayName} className="w-8 h-8 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
                                 ) : (
                                   <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
@@ -1061,6 +1249,166 @@ export default function AdminDashboard() {
                       </TableBody>
                     </Table>
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TAB: Brand Statistics */}
+          {activeTab === 'brands' && (
+            <div id="tab-brands-container" className="space-y-6 animate-fade-in">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                <div>
+                  <h1 className="text-3xl font-bold text-slate-900 tracking-tight">回收品類品牌統計</h1>
+                  <p className="text-slate-500 mt-1">追蹤並統計不同生產商與產品品牌的相關回收資材紀錄</p>
+                </div>
+              </div>
+
+              {/* Brands Statistics Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mb-6">
+                <Card className="rounded-3xl border border-slate-100/80 shadow-sm overflow-hidden bg-gradient-to-br from-white to-slate-50/50 hover:shadow-md transition-shadow">
+                  <CardContent className="p-6 flex flex-col justify-between h-full min-h-[140px]">
+                    <div className="flex items-center justify-between w-full">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">已註冊品牌數</p>
+                      <div className="p-2.5 bg-cyan-50 text-cyan-600 rounded-2xl shrink-0">
+                        <Tag className="w-5 h-5" />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-baseline gap-1">
+                      <h3 className="text-4xl font-black text-slate-900 tracking-tight">{brandsList.length}</h3>
+                      <span className="text-sm font-semibold text-slate-500">個</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl border border-slate-100/80 shadow-sm overflow-hidden bg-gradient-to-br from-white to-slate-50/50 hover:shadow-md transition-shadow">
+                  <CardContent className="p-6 flex flex-col justify-between h-full min-h-[140px]">
+                    <div className="flex items-center justify-between w-full">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">總回收關聯紀錄數</p>
+                      <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl shrink-0">
+                        <BarChart3 className="w-5 h-5" />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-baseline gap-1">
+                      <h3 className="text-4xl font-black text-slate-900 tracking-tight">
+                        {brandsList.reduce((acc, curr) => acc + (curr.recoveryRecords?.length || 0), 0)}
+                      </h3>
+                      <span className="text-sm font-semibold text-slate-500">次</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl border border-slate-100/80 shadow-sm overflow-hidden bg-gradient-to-br from-white to-slate-50/50 hover:shadow-md transition-shadow sm:col-span-2 lg:col-span-1">
+                  <CardContent className="p-6 flex flex-col justify-between h-full min-h-[140px]">
+                    <div className="flex items-center justify-between w-full">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">最活躍回收品牌</p>
+                      <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl shrink-0">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <h3 className="text-xl font-extrabold text-slate-900 tracking-tight truncate max-w-[220px]" title={brandsList.length > 0 ? brandsList[0].id : '無資料'}>
+                        {brandsList.length > 0 ? brandsList[0].id : '無資料'}
+                      </h3>
+                      {brandsList.length > 0 && (
+                        <p className="text-xs text-indigo-600 font-bold mt-1 bg-indigo-50/50 rounded-full px-2 py-0.5 inline-block border border-indigo-100/30">
+                          已關聯 {brandsList[0].recoveryRecords?.length || 0} 筆回收記錄
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Filter & Table */}
+              <Card className="rounded-3xl border-slate-100 shadow-sm bg-white overflow-hidden">
+                <CardHeader className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shrink-0">
+                  <div>
+                    <CardTitle className="text-lg font-bold text-slate-950 flex items-center gap-2">
+                      🏷️ 品牌資材關聯清單
+                    </CardTitle>
+                    <CardDescription className="text-slate-500 mt-1">
+                      可檢視各品牌的關聯回收紀錄統計，點擊「檢視關聯記錄」可查詢該品牌的歷史回收履歷
+                    </CardDescription>
+                  </div>
+                  <div className="w-full md:w-80 relative">
+                    <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
+                    <Input 
+                      type="text" 
+                      placeholder="搜尋品牌名稱..." 
+                      value={brandSearchQuery}
+                      onChange={(e) => setBrandSearchQuery(e.target.value)}
+                      className="pl-9 bg-slate-50 border-slate-200/80 focus-visible:ring-cyan-500 rounded-2xl"
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {brandsLoading ? (
+                    <div className="py-12 text-center text-slate-500 flex flex-col items-center gap-2">
+                      <RefreshCw className="w-6 h-6 animate-spin text-cyan-600" />
+                      <span>正在載入品牌統計資料...</span>
+                    </div>
+                  ) : brandsList.length === 0 ? (
+                    <div className="py-16 text-center text-slate-400">
+                      <Tag className="w-12 h-12 mx-auto mb-3 opacity-25" />
+                      <p className="font-semibold">目前暫無品牌統計資料</p>
+                      <p className="text-xs mt-1">當回收物資被辨識並儲存對應之品牌標籤後將於此自動統計</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
+                            <TableHead className="pl-6 py-4 font-bold text-slate-700">品牌名稱</TableHead>
+                            <TableHead className="py-4 font-bold text-slate-700">關聯回收次數</TableHead>
+                            <TableHead className="py-4 font-bold text-slate-700">自動生成標籤圖示</TableHead>
+                            <TableHead className="pr-6 py-4 font-bold text-slate-700 text-right">操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {brandsList
+                            .filter(b => b.id.toLowerCase().includes(brandSearchQuery.toLowerCase()))
+                            .map((brand, idx) => (
+                              <TableRow key={brand.id} className="hover:bg-slate-50/40 transition-colors">
+                                <TableCell className="pl-6 py-4 font-semibold text-slate-800">
+                                  <span className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-full px-3 py-1 text-xs font-semibold border border-slate-200/50 transition-colors">
+                                    🏷️ {brand.id}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="py-4">
+                                  <span className="font-mono font-bold text-slate-700">
+                                    {brand.recoveryRecords?.length || 0}
+                                  </span>
+                                  <span className="text-xs text-slate-400 ml-1">筆記錄</span>
+                                </TableCell>
+                                <TableCell className="py-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-sm uppercase select-none">
+                                      {brand.id.slice(0, 2)}
+                                    </div>
+                                    <span className="text-xs text-slate-400 font-medium font-mono hidden sm:inline">
+                                      {brand.id.charAt(0).toUpperCase()} Logo Asset
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="pr-6 py-4 text-right">
+                                  <Button 
+                                    type="button"
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => setSelectedBrand(brand)}
+                                    className="rounded-full text-xs font-bold border-slate-200 hover:bg-cyan-50 hover:text-cyan-600 transition-colors"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 mr-1" />
+                                    檢視關聯記錄
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1348,7 +1696,7 @@ export default function AdminDashboard() {
             <div className="flex-1 overflow-y-auto space-y-6 my-4 pr-1 text-slate-800 text-sm">
               {/* Profile Card Header */}
               <div className="flex items-start gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-200/60">
-                {selectedUser.photoURL ? (
+                {selectedUser.photoURL && selectedUser.photoURL !== "" ? (
                   <img src={selectedUser.photoURL} alt={selectedUser.displayName} className="w-16 h-16 rounded-full object-cover border border-slate-300" referrerPolicy="no-referrer" />
                 ) : (
                   <div className="w-16 h-16 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-2xl uppercase border border-slate-300">
@@ -1561,6 +1909,142 @@ export default function AdminDashboard() {
               className="rounded-full px-6 bg-slate-900 hover:bg-slate-800 text-white"
             >
               關閉視窗
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* BRAND ASSOCIATED RECORDS DIALOG */}
+      <Dialog open={!!selectedBrand} onOpenChange={(open) => { if (!open) setSelectedBrand(null); }}>
+        <DialogContent className="sm:max-w-[800px] rounded-3xl max-h-[85vh] flex flex-col p-6 overflow-hidden">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="text-xl font-bold text-slate-950 flex items-center gap-2">
+              <Tag className="w-5 h-5 text-cyan-600" />
+              <span>【{selectedBrand?.id}】品牌 關聯回收紀錄履歷</span>
+            </DialogTitle>
+            <DialogDescription className="text-slate-500 mt-1">
+              列出所有包含此品牌的回收資材與其完整回收狀態
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto my-4 pr-1 space-y-4">
+            {brandRecordsLoading ? (
+              <div className="py-12 text-center text-slate-500 flex flex-col items-center gap-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-cyan-600" />
+                <span>正在查詢關聯回收物資...</span>
+              </div>
+            ) : brandRecords.length === 0 ? (
+              <div className="py-12 text-center text-slate-400">
+                <FileText className="w-12 h-12 mx-auto mb-3 opacity-25" />
+                <p className="font-semibold">暫無相關聯的回收紀錄</p>
+              </div>
+            ) : (
+              <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/50">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-100/60 hover:bg-slate-100/60">
+                      <TableHead className="py-3 font-semibold text-slate-700 text-xs pl-4">回收資材圖片</TableHead>
+                      <TableHead className="py-3 font-semibold text-slate-700 text-xs">品類與材質</TableHead>
+                      <TableHead className="py-3 font-semibold text-slate-700 text-xs">數量與單位</TableHead>
+                      <TableHead className="py-3 font-semibold text-slate-700 text-xs">目前狀態</TableHead>
+                      <TableHead className="py-3 font-semibold text-slate-700 text-xs">建立日期</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {brandRecords.map((record) => (
+                      <TableRow key={record.id} className="hover:bg-white transition-colors bg-white/60">
+                        <TableCell className="py-3 pl-4">
+                          {record.imageUrl ? (
+                            <img 
+                              src={record.imageUrl} 
+                              alt={record.productCategory} 
+                              className="w-12 h-12 rounded-xl object-cover border border-slate-100"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-[10px] text-slate-400">
+                              無圖片
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <p className="font-bold text-slate-800 text-sm">{record.productCategory}</p>
+                          <p className="text-[10px] text-slate-400 font-semibold">{record.materialCategory}</p>
+                        </TableCell>
+                        <TableCell className="py-3 font-mono font-bold text-slate-700 text-sm">
+                          {record.quantity} {record.unit}
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                            record.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                            record.status === 'CANCELLED' ? 'bg-rose-50 text-rose-700 border border-rose-100' :
+                            record.status === 'GOING_HOME' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                            'bg-amber-50 text-amber-700 border border-amber-100'
+                          }`}>
+                            {record.status === 'COMPLETED' ? '已完成' :
+                             record.status === 'CANCELLED' ? '已取消' :
+                             record.status === 'GOING_HOME' ? '進行中' :
+                             '待媒合'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-3 text-xs font-mono text-slate-500">
+                          {record.createdAt?.toDate 
+                            ? record.createdAt.toDate().toLocaleDateString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' }) 
+                            : '未知日期'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="mt-2 text-right shrink-0 border-t border-slate-100 pt-3">
+            <Button 
+              type="button" 
+              onClick={() => setSelectedBrand(null)} 
+              className="rounded-full px-6 bg-slate-900 hover:bg-slate-800 text-white font-bold"
+            >
+              關閉視窗
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CUSTOM CONFIRMATION DIALOG */}
+      <Dialog 
+        open={confirmDialog.isOpen} 
+        onOpenChange={(open) => { 
+          if (!open) setConfirmDialog(prev => ({ ...prev, isOpen: false })); 
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px] rounded-3xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+              {confirmDialog.title}
+            </DialogTitle>
+            <DialogDescription className="text-slate-500 mt-2 text-sm leading-relaxed">
+              {confirmDialog.description}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex gap-2 justify-end">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} 
+              className="rounded-full"
+            >
+              取消
+            </Button>
+            <Button 
+              type="button" 
+              variant="destructive" 
+              onClick={confirmDialog.onConfirm} 
+              className="rounded-full bg-red-600 hover:bg-red-700 text-white"
+            >
+              確定
             </Button>
           </DialogFooter>
         </DialogContent>

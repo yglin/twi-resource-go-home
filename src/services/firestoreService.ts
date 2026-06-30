@@ -14,7 +14,8 @@ import {
   GeoPoint,
   DocumentReference,
   Query,
-  addDoc
+  addDoc,
+  arrayUnion
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
@@ -152,5 +153,21 @@ export async function enrichResourceWithAI(material: string, product: string): P
   } catch (error: any) {
     console.error('enrichResourceWithAI failed:', error);
     throw error;
+  }
+}
+
+export async function associateBrandsWithRecord(recordId: string, brands: string[] | undefined): Promise<void> {
+  if (!brands || brands.length === 0) return;
+  try {
+    for (const brand of brands) {
+      const trimmedBrand = brand.trim();
+      if (!trimmedBrand) continue;
+      const brandRef = doc(db, 'brand', trimmedBrand);
+      await setDoc(brandRef, {
+        recoveryRecords: arrayUnion(recordId)
+      }, { merge: true });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `brand/${brands.join(',')}`);
   }
 }

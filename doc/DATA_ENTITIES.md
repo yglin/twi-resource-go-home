@@ -15,6 +15,7 @@
 | **`GoingHomePlan`** | `goingHomePlans` | 儲存由勾引魟選定多筆記錄後由 AI/演算法生成、核准並執行的收運據點路線計畫。 |
 | **`AppNotification`** | `notifications` | 系統、計畫核准確認與無法收取退載等事件的即時推播通知訊息。 |
 | **`MasterDataResource`** | `masterData_resources` | 系統公用或動態新增的可回收資源材質產品分類指引資料。|
+| **`Brand`** | `brand` | 儲存可回收資材的產品品牌/生廠商資訊，便於管理端進行品類與品牌維度之多維回收統計分析。|
 
 ---
 
@@ -291,6 +292,21 @@ interface ContractSchedule {
 | `senderRole` | `string` | 是 | **傳送者當下身分身分** |
 | `content` | `string` | 是 | **發送之訊息本文** |
 | `createdAt` | `Timestamp` | 是 | **訊息送出之時戳** |
+
+---
+
+## 7. 品牌 (Brand)
+
+* **Firestore 集合：** `brand`
+* **主鍵：** `id` (即品牌名稱，如 `Coca-Cola`, `Sprite`, `原萃`)
+* **TypeScript 定義：** `{ id: string; recoveryRecords: string[] }` (內置於 `AdminDashboard.tsx`)
+
+### 欄位與結構 (Schema Field Details)
+
+| 欄位名稱 (Field) | 資料類型 (Type) | 必填 | 預設值 | 中文標題與描述 |
+| :--- | :--- | :---: | :---: | :--- |
+| `id` | `string` | 是 | - | **品牌名稱** (主鍵，如：`Coca-Cola`, `Sprite`, `原萃`) |
+| `recoveryRecords` | `string[]` | 是 | `[]` | **關聯回收記錄 ID 陣列** (儲存所有歸屬於此產品品牌之 `recoveryRecords` 文件的 ID 列表) |
 
 ---
 

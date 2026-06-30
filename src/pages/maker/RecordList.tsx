@@ -7,7 +7,7 @@ import { RecoveryRecord, RecordStatus, MasterDataResource } from '../../types';
 import { listDocuments, updateDocument } from '../../services/firestoreService';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Package, Clock, MapPin, ChevronRight, Inbox, Check, Copy, Leaf, X, AlertCircle } from 'lucide-react';
+import { Package, Clock, MapPin, ChevronRight, Inbox, Check, Copy, Leaf, X, AlertCircle, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,7 @@ export default function RecordList() {
   const [records, setRecords] = useState<RecoveryRecord[]>([]);
   const [masterData, setMasterData] = useState<MasterDataResource[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'pending' | 'in_progress' | 'completed' | 'all'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'open_for_all' | 'in_progress' | 'completed' | 'all'>('pending');
   const [showPriceWarning, setShowPriceWarning] = useState(false);
   const navigate = useNavigate();
 
@@ -98,7 +98,9 @@ export default function RecordList() {
   const filteredRecords = records.filter(record => {
     switch (activeTab) {
       case 'pending':
-        return record.status === RecordStatus.JUST_BORN || record.status === RecordStatus.OPEN_FOR_ALL;
+        return record.status === RecordStatus.JUST_BORN;
+      case 'open_for_all':
+        return record.status === RecordStatus.OPEN_FOR_ALL;
       case 'in_progress':
         return [
           RecordStatus.WAITING_FOR_COLLECTION,
@@ -122,52 +124,36 @@ export default function RecordList() {
         </div>
       </header>
 
-      {/* Tab Navigator */}
-      <div className="flex flex-wrap p-1.5 bg-slate-100 rounded-3xl w-full border border-slate-200/60 shadow-sm gap-1">
-        <button
-          onClick={() => setActiveTab('pending')}
-          className={`flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl text-xs sm:text-sm font-semibold transition-all duration-200 outline-none ${
-            activeTab === 'pending'
-              ? 'bg-white text-cyan-700 shadow-sm border border-slate-200/10'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-          id="tab-pending"
-        >
-          待處理 ({records.filter(r => r.status === RecordStatus.JUST_BORN || r.status === RecordStatus.OPEN_FOR_ALL).length})
-        </button>
-        <button
-          onClick={() => setActiveTab('in_progress')}
-          className={`flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl text-xs sm:text-sm font-semibold transition-all duration-200 outline-none ${
-            activeTab === 'in_progress'
-              ? 'bg-white text-cyan-700 shadow-sm border border-slate-200/10'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-          id="tab-inprogress"
-        >
-          進行中 ({records.filter(r => [RecordStatus.WAITING_FOR_COLLECTION, RecordStatus.COLLECTION_CONFIRMED, RecordStatus.PICKED_UP].includes(r.status)).length})
-        </button>
-        <button
-          onClick={() => setActiveTab('completed')}
-          className={`flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl text-xs sm:text-sm font-semibold transition-all duration-200 outline-none ${
-            activeTab === 'completed'
-              ? 'bg-white text-cyan-700 shadow-sm border border-slate-200/10'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-          id="tab-completed"
-        >
-          已完成 ({records.filter(r => r.status === RecordStatus.COMPLETED).length})
-        </button>
-        <button
-          onClick={() => setActiveTab('all')}
-          className={`flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl text-xs sm:text-sm font-semibold transition-all duration-200 outline-none ${
-            activeTab === 'all'
-              ? 'bg-white text-cyan-750 shadow-sm border border-slate-200/10'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-          id="tab-all"
-        >
-          全部 ({records.length})
-        </button>
+      {/* Category Dropdown Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm" id="category-selector-card">
+        <span className="text-sm font-semibold text-slate-500 tracking-wide">選擇分類類別：</span>
+        <div className="relative w-full sm:w-64" id="category-dropdown-container">
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as any)}
+            className="w-full bg-slate-50 text-slate-800 font-bold px-4 py-2.5 pr-10 rounded-2xl border border-slate-200 shadow-inner appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all text-sm cursor-pointer"
+            id="category-dropdown"
+          >
+            <option value="pending">
+              待處理 ({records.filter(r => r.status === RecordStatus.JUST_BORN).length})
+            </option>
+            <option value="open_for_all">
+              公開徵收 ({records.filter(r => r.status === RecordStatus.OPEN_FOR_ALL).length})
+            </option>
+            <option value="in_progress">
+              進行中 ({records.filter(r => [RecordStatus.WAITING_FOR_COLLECTION, RecordStatus.COLLECTION_CONFIRMED, RecordStatus.PICKED_UP].includes(r.status)).length})
+            </option>
+            <option value="completed">
+              已完成 ({records.filter(r => r.status === RecordStatus.COMPLETED).length})
+            </option>
+            <option value="all">
+              全部 ({records.length})
+            </option>
+          </select>
+          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-500">
+            <ChevronDown className="w-4 h-4 stroke-[2.5]" />
+          </div>
+        </div>
       </div>
 
       {activeTab === 'completed' && (
@@ -272,6 +258,15 @@ export default function RecordList() {
                               </button>
                             </div>
                             <p className="text-xs text-slate-500 text-left">{record.materialCategory}</p>
+                            {record.brands && record.brands.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5 justify-start">
+                                {record.brands.map((b, idx) => (
+                                  <Badge key={idx} variant="secondary" className="bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full px-2 py-0 h-4 text-[9px] font-semibold border border-slate-200/50">
+                                    🏷️ {b}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
                           </div>
                            <div className="text-right">
                             <div className="flex items-baseline justify-end">

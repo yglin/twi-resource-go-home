@@ -98,20 +98,23 @@ service cloud.firestore {
                data.quantity is number && data.quantity > 0 &&
                data.imageUrl is string && data.address is string &&
                data.status in ['JUST_BORN', 'WAITING_FOR_COLLECTION', 'COLLECTION_CONFIRMED', 'PICKED_UP', 'COMPLETED', 'OPEN_FOR_ALL', 'CANCELLED'] &&
-               (data.makerFishId == request.auth.uid || data.get('selectedGoingHomeId', '') == request.auth.uid || data.status == 'OPEN_FOR_ALL' || data.status == 'CANCELLED');
+               (data.makerFishId == request.auth.uid || data.get('selectedGoingHomeId', '') == request.auth.uid || data.status == 'OPEN_FOR_ALL' || data.status == 'CANCELLED') &&
+               (!data.keys().hasAny(['brands']) || (data.brands is list && data.brands.size() <= 20 && (data.brands.size() == 0 || data.brands[0] is string)));
       }
 
-      allow get: if existing().status == 'OPEN_FOR_ALL' || (isSignedIn() && (
+      allow get: if existing().status == 'OPEN_FOR_ALL';
+      allow get: if isSignedIn() && (
         existing().makerFishId == request.auth.uid || 
         existing().selectedGoingHomeId == request.auth.uid ||
         isAdmin()
-      ));
+      );
 
-      allow list: if resource.data.status == 'OPEN_FOR_ALL' || (isSignedIn() && (
+      allow list: if resource.data.status == 'OPEN_FOR_ALL';
+      allow list: if isSignedIn() && (
         resource.data.makerFishId == request.auth.uid || 
         resource.data.selectedGoingHomeId == request.auth.uid ||
         isAdmin()
-      ));
+      );
 
       allow create: if isSignedIn() && isValidRecord(incoming()) && 
                        incoming().createdAt == request.time;
@@ -318,6 +321,15 @@ service cloud.firestore {
       }
       allow create: if isSignedIn() && isValidLog(incoming());
       allow read, update, delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // Brand Collections
+    // ---------------------------------------------------------
+    match /brand/{brandId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
     }
   }
 }

@@ -83,7 +83,7 @@ export default function MakerDashboard() {
         <div className="w-full pt-4 border-t border-slate-800 space-y-2 mt-4">
           <div className="flex items-center gap-3 px-2 overflow-hidden cursor-pointer hover:bg-slate-800/50 rounded-xl py-1 transition-colors" onClick={() => navigate('/setup')}>
             <Avatar className="h-10 w-10 ring-2 ring-cyan-500/20">
-              <AvatarImage src={profile?.photoURL} />
+              <AvatarImage src={profile?.photoURL || undefined} />
               <AvatarFallback>{profile?.displayName?.[0] || '?'}</AvatarFallback>
             </Avatar>
             <div className="hidden md:block">

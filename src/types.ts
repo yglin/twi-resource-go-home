@@ -80,6 +80,7 @@ export interface RecoveryRecord {
   statusUpdatedAt?: Timestamp;
   unableToCollectReason?: string;
   expirationDate?: Timestamp;
+  brands?: string[];
 }
 
 export interface GoingHomePlan {

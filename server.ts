@@ -274,55 +274,76 @@ ${selectedVehicleLabels.map(v => `- ${v}`).join('\n')}
 請規劃合理的順序 (sortingOrder 由 1 開始編號)。
 請嚴格依照 schema 格式回傳，不要有任何額外的文字敘述。`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: promptString,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              transportationType: {
-                type: Type.STRING,
-                description: "AI-suggested vehicle (e.g. 輕型機車, 三輪車, 小型貨車)"
-              },
-              plannedDepartureTime: {
-                type: Type.STRING,
-                description: "ISO departure time"
-              },
-              routePolyline: {
-                type: Type.STRING,
-                description: "Encapsulated details of the route as summary or fake Google Maps encoded polyline string"
-              },
-              stops: {
-                type: Type.ARRAY,
-                items: {
+      let response;
+      let lastError: any = null;
+      const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest"];
+
+      for (const currentModel of modelsToTry) {
+        let attempts = 2;
+        while (attempts > 0) {
+          try {
+            await logToSystem("info", `Attempting Route Planning with model ${currentModel}...`, "route-planning");
+            response = await ai.models.generateContent({
+              model: currentModel,
+              contents: promptString,
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
                   type: Type.OBJECT,
                   properties: {
-                    recordId: { type: Type.STRING },
-                    arrivalTime: {
+                    transportationType: {
                       type: Type.STRING,
-                      description: "ISO formatted estimated arrival time"
+                      description: "AI-suggested vehicle (e.g. 輕型機車, 三輪車, 小型貨車)"
                     },
-                    sortingOrder: {
-                      type: Type.INTEGER,
-                      description: "Incremental integer starting from 1"
+                    plannedDepartureTime: {
+                      type: Type.STRING,
+                      description: "ISO departure time"
+                    },
+                    routePolyline: {
+                      type: Type.STRING,
+                      description: "Encapsulated details of the route as summary or fake Google Maps encoded polyline string"
+                    },
+                    stops: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          recordId: { type: Type.STRING },
+                          arrivalTime: {
+                            type: Type.STRING,
+                            description: "ISO formatted estimated arrival time"
+                          },
+                          sortingOrder: {
+                            type: Type.INTEGER,
+                            description: "Incremental integer starting from 1"
+                          }
+                        },
+                        required: ["recordId", "arrivalTime", "sortingOrder"]
+                      }
                     }
                   },
-                  required: ["recordId", "arrivalTime", "sortingOrder"]
+                  required: ["transportationType", "plannedDepartureTime", "stops"]
                 }
               }
-            },
-            required: ["transportationType", "plannedDepartureTime", "stops"]
+            });
+            break;
+          } catch (err: any) {
+            lastError = err;
+            attempts--;
+            await logToSystem("warn", `Route Planning failed with model ${currentModel}: ${err.message}`, "route-planning");
+            if (attempts > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
           }
         }
-      });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error("Gemini AI did not return any layout text.");
+        if (response) break;
       }
 
+      if (!response || !response.text) {
+        throw lastError || new Error("All Gemini models failed to generate content.");
+      }
+
+      const text = response.text;
       const parsedPlan = JSON.parse(text.trim());
       await logToSystem("info", "AI Route Planning Succeeded", "route-planning", parsedPlan);
       res.json({ ...parsedPlan, isAI: true });
@@ -409,6 +430,7 @@ ${selectedVehicleLabels.map(v => `- ${v}`).join('\n')}
       const prompt = `你是一個專業的環保回收 AI 指南。請辨識這張圖片中的主要物品，並根據其材質與形狀分類。
 請優先比對已知材質主檔，如果圖片中的物品能對應上主檔中的某個(material, product)類別，請務必精確使用該組名稱，並帶入其單位；
 如果完全不匹配，再自行生成具代表性的全新 (material, category) 名稱與數量單位 (如「瓶」、「片」、「公升」、「個」等，預設為「個」)。
+另外請試著從包裝或外觀辨識出該物品的生產商或產品品牌名稱 (如：可口可樂、泰山、多力多滋、光泉等)，並以字串陣列形式回傳於 brands 欄位中，如果無法辨識則回傳空陣列 []。
 請務必返回以下格式的 JSON 資料，且不要包含任何額外的 Markdown 包裝符或對話：
 {
   "material": "材質名稱 (如: 塑膠, 紙類, 金屬)",
@@ -416,42 +438,93 @@ ${selectedVehicleLabels.map(v => `- ${v}`).join('\n')}
   "quantity": 1,
   "unit": "數量單位 (如: 瓶, 片, 公升, 個)",
   "suggestion": "給使用者的分類回收建議 (如: 請洗淨後壓扁)",
+  "brands": ["品牌1", "品牌2"],
   "confidence": 0.95
 }
 參考已知材質主檔：${Array.isArray(masterData) ? masterData.map(m => `${m.material}-${m.product} (單位: ${m.unit || '個'})`).join(', ') : ""}`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inlineData: { data: image.split(',')[1] || image, mimeType: "image/jpeg" } }
-            ]
-          }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              material: { type: Type.STRING },
-              category: { type: Type.STRING },
-              quantity: { type: Type.NUMBER },
-              unit: { type: Type.STRING },
-              suggestion: { type: Type.STRING }
-            },
-            required: ["material", "category", "quantity", "unit", "suggestion"]
+      let response;
+      let lastError: any = null;
+      const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest"];
+
+      for (const currentModel of modelsToTry) {
+        let attempts = 2;
+        while (attempts > 0) {
+          try {
+            await logToSystem("info", `Attempting Gemini Image Analysis with model ${currentModel}...`, "analyze-image");
+            response = await ai.models.generateContent({
+              model: currentModel,
+              contents: [
+                {
+                  parts: [
+                    { text: prompt },
+                    { inlineData: { data: image.split(',')[1] || image, mimeType: "image/jpeg" } }
+                  ]
+                }
+              ],
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    material: { type: Type.STRING },
+                    category: { type: Type.STRING },
+                    quantity: { type: Type.NUMBER },
+                    unit: { type: Type.STRING },
+                    suggestion: { type: Type.STRING },
+                    brands: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                      description: "List of manufacturer brands recognized on the item(s), or empty array if none can be identified."
+                    }
+                  },
+                  required: ["material", "category", "quantity", "unit", "suggestion", "brands"]
+                }
+              }
+            });
+            break;
+          } catch (err: any) {
+            lastError = err;
+            attempts--;
+            await logToSystem("warn", `Gemini Image Analysis failed with model ${currentModel}: ${err.message}`, "analyze-image");
+            if (attempts > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
           }
         }
-      });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error("Gemini did not return any analyzed text.");
+        if (response) break;
       }
 
-      const parsed = JSON.parse(text.trim());
+      let parsed;
+      if (!response || !response.text) {
+        await logToSystem("error", "All Gemini models and retries failed for image analysis. Using safe heuristic fallback.", "analyze-image", lastError);
+        // Fallback strategy: If all models fail, try to guess from masterData if possible or provide a smart default
+        if (Array.isArray(masterData) && masterData.length > 0) {
+          const firstItem = masterData[0];
+          parsed = {
+            material: firstItem.material || "其他材質",
+            category: firstItem.product || "回收產品",
+            quantity: 1,
+            unit: firstItem.unit || "個",
+            suggestion: firstItem.defaultSuggestion || "請洗淨壓扁後配合當地清潔隊回收。",
+            brands: [],
+            isFallback: true
+          };
+        } else {
+          parsed = {
+            material: "其他",
+            category: "可回收物",
+            quantity: 1,
+            unit: "個",
+            suggestion: "請將物品清洗乾淨，並配合當地清潔隊或回收點進行回收分類。",
+            brands: [],
+            isFallback: true
+          };
+        }
+      } else {
+        const text = response.text;
+        parsed = JSON.parse(text.trim());
+      }
 
       // Post-process to align with masterData list if passed (prevent minor typos, case differences or slight drift)
       if (Array.isArray(masterData) && masterData.length > 0) {
@@ -609,59 +682,66 @@ ${selectedVehicleLabels.map(v => `- ${v}`).join('\n')}
   "estimatedWeight": 0.025
 }`;
 
-        // Retry loop with exponential backoff
-        let attempts = 3;
-        let delayMs = 1000;
-        for (let i = 0; i < attempts; i++) {
-          try {
-            const response = await ai.models.generateContent({
-              model: "gemini-3.5-flash",
-              contents: prompt,
-              config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    defaultSuggestion: { 
-                      type: Type.STRING,
-                      description: "預設分類回收與前置處理建議指引"
+        // Multi-model retry loop with exponential backoff
+        const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest"];
+        let success = false;
+
+        for (const currentModel of modelsToTry) {
+          if (success) break;
+          let attempts = 2;
+          let delayMs = 1000;
+          for (let i = 0; i < attempts; i++) {
+            try {
+              const response = await ai.models.generateContent({
+                model: currentModel,
+                contents: prompt,
+                config: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                      defaultSuggestion: { 
+                        type: Type.STRING,
+                        description: "預設分類回收與前置處理建議指引"
+                      },
+                      keywords: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                        description: "比對關鍵字陣列，3-5個"
+                      },
+                      unit: { 
+                        type: Type.STRING,
+                        description: "常用的數量計量單位，例如個、瓶、片、公升、罐"
+                      },
+                      carbonReduced: { 
+                        type: Type.NUMBER,
+                        description: "回收一公斤此材質的預估減碳效益，單位為公克/公斤"
+                      },
+                      expireAfterhHours: { 
+                        type: Type.INTEGER,
+                        description: "放置多少小時會變質難以回收，0表示無限期"
+                      },
+                      estimatedWeight: { 
+                        type: Type.NUMBER,
+                        description: "單件預估重量，單位為公斤"
+                      }
                     },
-                    keywords: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: "比對關鍵字陣列，3-5個"
-                    },
-                    unit: { 
-                      type: Type.STRING,
-                      description: "常用的數量計量單位，例如個、瓶、片、公升、罐"
-                    },
-                    carbonReduced: { 
-                      type: Type.NUMBER,
-                      description: "回收一公斤此材質的預估減碳效益，單位為公克/公斤"
-                    },
-                    expireAfterhHours: { 
-                      type: Type.INTEGER,
-                      description: "放置多少小時會變質難以回收，0表示無限期"
-                    },
-                    estimatedWeight: { 
-                      type: Type.NUMBER,
-                      description: "單件預估重量，單位為公斤"
-                    }
-                  },
-                  required: ["defaultSuggestion", "keywords", "unit", "carbonReduced", "expireAfterhHours", "estimatedWeight"]
+                    required: ["defaultSuggestion", "keywords", "unit", "carbonReduced", "expireAfterhHours", "estimatedWeight"]
+                  }
                 }
+              });
+              const text = response.text;
+              if (text) {
+                aiResponse = JSON.parse(text.trim());
+                success = true;
+                break;
               }
-            });
-            const text = response.text;
-            if (text) {
-              aiResponse = JSON.parse(text.trim());
-              break;
-            }
-          } catch (retryError: any) {
-            await logToSystem("info", `Gemini API attempt ${i + 1} transient workload constraint, retrying shortly...`, "ai-enrich");
-            if (i < attempts - 1) {
-              await new Promise(resolve => setTimeout(resolve, delayMs));
-              delayMs *= 2;
+            } catch (retryError: any) {
+              await logToSystem("info", `Gemini API model ${currentModel} attempt ${i + 1} transient constraint: ${retryError.message}`, "ai-enrich");
+              if (i < attempts - 1) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                delayMs *= 2;
+              }
             }
           }
         }

@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../App';
-import { createDocument, listDocuments } from '../../services/firestoreService';
+import { createDocument, listDocuments, associateBrandsWithRecord } from '../../services/firestoreService';
 import { MasterDataResource, RecordStatus } from '../../types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { Camera, Image as ImageIcon, Sparkles, Loader2, Check, ArrowLeft, Send, Leaf, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Timestamp, GeoPoint, serverTimestamp } from 'firebase/firestore';
@@ -36,6 +37,23 @@ export default function CreateRecord() {
   const [coordinates, setCoordinates] = useState<GeoPoint | null>(copiedRecord?.coordinates || profile?.coordinates || null);
   const [openForAll, setOpenForAll] = useState(copiedRecord?.status === RecordStatus.OPEN_FOR_ALL || false);
   const [showPriceWarning, setShowPriceWarning] = useState(false);
+  const [showAiErrorDialog, setShowAiErrorDialog] = useState(false);
+  const [brands, setBrands] = useState<string[]>(copiedRecord?.brands || []);
+  const [brandInput, setBrandInput] = useState('');
+
+  const handleAddBrand = () => {
+    if (brandInput.trim()) {
+      const trimmed = brandInput.trim();
+      if (!brands.includes(trimmed)) {
+        setBrands([...brands, trimmed]);
+      }
+      setBrandInput('');
+    }
+  };
+
+  const handleRemoveBrand = (indexToRemove: number) => {
+    setBrands(brands.filter((_, idx) => idx !== indexToRemove));
+  };
   const [expirationDateStr, setExpirationDateStr] = useState<string>(
     copiedRecord?.expirationDate
       ? (() => {
@@ -142,10 +160,11 @@ export default function CreateRecord() {
       setQuantity(result.quantity || 1);
       setUnit(result.unit || '個');
       setSuggestion(result.suggestion || '');
+      setBrands(result.brands || []);
       
       if (result.isFallback) {
         await logToSystem(LogLevel.WARN, 'AI 影像服務傳回備用預填資料', 'CreateRecord', result);
-        toast.info('影像系統以最佳預期規格為您預填。');
+        setShowAiErrorDialog(true);
       } else {
         await logToSystem(LogLevel.INFO, `AI 影像辨識完成: ${result.material} / ${result.category}`, 'CreateRecord', result);
         toast.success('AI 辨識成功！');
@@ -153,7 +172,7 @@ export default function CreateRecord() {
     } catch (error: any) {
       console.error(error);
       await logToSystem(LogLevel.ERROR, `AI 影像辨識發生異常: ${error.message}`, 'CreateRecord', error);
-      toast.error('AI 辨識發生錯誤，請手動輸入。');
+      setShowAiErrorDialog(true);
     } finally {
       setAnalyzing(false);
     }
@@ -224,14 +243,18 @@ export default function CreateRecord() {
         createdAt: serverTimestamp(),
         candidateGoingHomeIds: [],
         selectedGoingHomeId: '',
-        timeWindow: profile?.timeWindow || {}
+        timeWindow: profile?.timeWindow || {},
+        brands
       };
 
       if (expirationDate) {
         recordData.expirationDate = expirationDate;
       }
 
-      await createDocument('recoveryRecords', recordData);
+      const docId = await createDocument('recoveryRecords', recordData);
+      if (docId && brands && brands.length > 0) {
+        await associateBrandsWithRecord(docId, brands);
+      }
       await logToSystem(LogLevel.INFO, '資源回收記錄存檔成功', 'CreateRecord', { material: trimmedMaterial, category: trimmedCategory });
       toast.success('記錄已成功送出！');
       navigate('/maker');
@@ -341,6 +364,49 @@ export default function CreateRecord() {
                   <Label>產品名稱</Label>
                   <Input value={category} onChange={e => setCategory(e.target.value)} placeholder="如：寶特瓶" />
                 </div>
+              </div>
+
+              {/* Brands Tagging Field */}
+              <div className="space-y-2 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                <Label className="flex items-center gap-1.5 text-slate-700 font-bold text-sm">
+                  🏷️ 辨識商品品牌
+                </Label>
+                <p className="text-[11px] text-slate-400">
+                  從回收資材中可辨識出的生產商或品牌（如：可口可樂、泰山、光泉）
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    value={brandInput}
+                    onChange={e => setBrandInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddBrand();
+                      }
+                    }}
+                    placeholder="輸入品牌後按 Enter 或點擊新增"
+                    className="bg-white"
+                  />
+                  <Button type="button" onClick={handleAddBrand} variant="secondary" className="px-4 font-bold shrink-0">
+                    新增
+                  </Button>
+                </div>
+                {brands.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2 pt-1">
+                    {brands.map((b, idx) => (
+                      <Badge key={idx} variant="secondary" className="bg-white hover:bg-slate-100 text-slate-800 rounded-full px-3 py-1 flex items-center gap-1.5 font-semibold text-xs border border-slate-200 shadow-sm animate-in fade-in zoom-in-95 duration-150">
+                        🏷️ {b}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBrand(idx)}
+                          className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-slate-200 text-slate-400 hover:text-slate-600 font-bold text-[10px] shrink-0 transition-colors"
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -453,6 +519,29 @@ export default function CreateRecord() {
           <DialogFooter className="border-t border-slate-100 pt-4">
             <Button 
               onClick={() => setShowPriceWarning(false)} 
+              className="rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold px-6"
+            >
+              我知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAiErrorDialog} onOpenChange={setShowAiErrorDialog}>
+        <DialogContent className="sm:max-w-md rounded-3xl bg-white p-6 border-slate-200 shadow-xl">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-red-600">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              AI 辨識提醒
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 border-t border-slate-100 space-y-3">
+            <h3 className="text-lg font-bold text-slate-900">AI辨識失敗，請手動輸入資料</h3>
+            <p className="text-slate-600 text-sm leading-relaxed">本網站目前由看守台灣協會開發並維護，線上AI資源有限，如果您認同本網站的理念，請<a href="https://www.taiwanwatch.org.tw/donation" target="__blank" className="text-cyan-600 hover:underline font-bold">支持看守台灣</a></p>
+          </div>
+          <DialogFooter className="border-t border-slate-100 pt-4">
+            <Button 
+              onClick={() => setShowAiErrorDialog(false)} 
               className="rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold px-6"
             >
               我知道了
